@@ -674,7 +674,7 @@ Examples:
 
             # Save to Appwrite if enabled
             if appwrite:
-                doc_id = appwrite.save_transcript(analysis, audio_file.name)
+                doc_id = appwrite.save_transcript(analysis)
                 if doc_id:
                     logger.info(f"  Appwrite ID: {doc_id}")
 

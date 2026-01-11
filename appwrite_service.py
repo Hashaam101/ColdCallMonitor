@@ -18,21 +18,22 @@ from appwrite.exception import AppwriteException
 logger = logging.getLogger(__name__)
 
 # Collection schema definition - matches Schema.dbml
-# Note: Sizes reduced to fit Appwrite free tier limits (total ~20KB per collection)
+# Note: Sizes minimized to fit Appwrite free tier limits
 TRANSCRIPT_ATTRIBUTES = [
-    {"key": "transcript", "type": "string", "size": 10000, "required": True},  # 10KB
-    {"key": "caller_name", "type": "string", "size": 100, "required": False},
-    {"key": "recipients", "type": "string", "size": 100, "required": False},
-    {"key": "owner_name", "type": "string", "size": 100, "required": False},
-    {"key": "company_name", "type": "string", "size": 100, "required": False},
-    {"key": "company_location", "type": "string", "size": 100, "required": False},
-    {"key": "call_outcome", "type": "string", "size": 50, "required": False},
+    {"key": "transcript", "type": "string", "size": 5000, "required": True},  # 5KB max
+    {"key": "caller_name", "type": "string", "size": 50, "required": False},
+    {"key": "recipients", "type": "string", "size": 50, "required": False},
+    {"key": "owner_name", "type": "string", "size": 50, "required": False},
+    {"key": "company_name", "type": "string", "size": 50, "required": False},
+    {"key": "company_location", "type": "string", "size": 50, "required": False},
+    {"key": "call_outcome", "type": "string", "size": 30, "required": False},
     {"key": "interest_level", "type": "integer", "required": False, "min": 1, "max": 10},
-    {"key": "objections", "type": "string", "size": 1000, "required": False},  # 1KB
-    {"key": "pain_points", "type": "string", "size": 1000, "required": False},  # 1KB
-    {"key": "follow_up_actions", "type": "string", "size": 1000, "required": False},  # 1KB
-    {"key": "call_summary", "type": "string", "size": 1000, "required": False},  # 1KB
-    {"key": "model_used", "type": "string", "size": 50, "required": False},
+    {"key": "objections", "type": "string", "size": 500, "required": False},
+    {"key": "pain_points", "type": "string", "size": 500, "required": False},
+    {"key": "follow_up_actions", "type": "string", "size": 500, "required": False},
+    {"key": "call_summary", "type": "string", "size": 500, "required": False},
+    {"key": "call_duration_estimate", "type": "string", "size": 30, "required": False},
+    {"key": "model_used", "type": "string", "size": 30, "required": False},
     {"key": "input_tokens", "type": "integer", "required": False},
     {"key": "output_tokens", "type": "integer", "required": False},
     {"key": "total_tokens", "type": "integer", "required": False},
@@ -168,6 +169,10 @@ class AppwriteService:
                     data[field] = json.dumps(data[field])
                 elif not data.get(field):
                     data[field] = "[]"
+
+            # Only keep fields that are defined in the schema
+            valid_keys = {attr["key"] for attr in TRANSCRIPT_ATTRIBUTES}
+            data = {k: v for k, v in data.items() if k in valid_keys}
 
             # Remove None values (Appwrite doesn't like null for non-required fields)
             data = {k: v for k, v in data.items() if v is not None}

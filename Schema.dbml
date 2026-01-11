@@ -12,12 +12,14 @@ Table ColdCalls {
   pain_points text
   follow_up_actions text
   call_summary text
+  call_duration_estimate varchar
+  
 
   model_used varchar
   input_tokens int
   output_tokens int
   total_tokens int
-  
+
   createdAt datetime [default: `now()`]
   updatedAt datetime [default: `now()`]
 }
