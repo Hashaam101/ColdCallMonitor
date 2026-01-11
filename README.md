@@ -1,7 +1,6 @@
 # Cold Call Transcriber
 
-This tool uses the Google Gemini API to transcribe audio calls and automatically name the output files based on extracted metadata (Caller Name, Restaurant Name, and Date).
-In this project the calls are specific to the restaurant industry and are cold calls to potential customers.
+This tool uses the Google Gemini API to transcribe cold call recordings and extract actionable insights. It identifies who was spoken to (Recipients), the target decision maker (Owner), the company's location, key objections, and follow-up actions.
 
 ## Prerequisites
 
@@ -42,11 +41,14 @@ python transcribe_calls.py recordings/call_001.mp3
 
 ### Output
 
-The script will generate a text file in the current directory named using the format:
-`{Caller Name} - {Restaurant Name} - {Date}.txt`
+The script will generate files in the `transcripts/` directory named using the format:
+`{DD-MM-YYYY_HH-MM-SS}_{Company Name}_{Recipients}_{Date}.txt`
+
+The date and time are formatted in local time (PKT).
 
 For example:
-`John Doe - The Burger Joint - 2023-10-27.txt`
+`27-10-2023_14-30-05_The_Burger_Joint_Receptionist_2023-10-27.txt`
+`28-10-2023_09-15-22_TechCorp_John_Owner_2023-10-28.txt`
 
-If specific metadata cannot be identified, it will default to "Unknown", e.g.:
-`Unknown_Caller - Pizza Place - Unknown_Date.txt`
+If specific metadata cannot be identified, it will use the audio file's timestamp and original name, e.g.:
+`12-01-2026_10-00-00_Pizza_Place_Unknown_Unknown_Date.txt`

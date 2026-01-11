@@ -1,0 +1,23 @@
+Table ColdCalls {
+  id varchar [pk, unique, not null, default: 'uuid()']
+  transcript text [not null]
+  caller_name varchar
+  recipients varchar
+  owner_name varchar
+  company_name varchar
+  company_location varchar
+  call_outcome varchar
+  interest_level int
+  objections text
+  pain_points text
+  follow_up_actions text
+  call_summary text
+
+  model_used varchar
+  input_tokens int
+  output_tokens int
+  total_tokens int
+  
+  createdAt datetime [default: `now()`]
+  updatedAt datetime [default: `now()`]
+}

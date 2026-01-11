@@ -1030,7 +1030,7 @@ class RecorderApp:
             self.status_label.config(text="Ready", foreground="gray")
             return
 
-        timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
+        timestamp = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
         save_mode = self.config.get("save_mode", "ask")
 
         if save_mode == "auto":

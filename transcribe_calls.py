@@ -17,8 +17,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import mutagen
 from dotenv import load_dotenv
 from google import genai
+
+from appwrite_service import init_appwrite
 
 load_dotenv()
 
@@ -39,9 +42,11 @@ class CallAnalysis:
     """Structured data from a cold call transcription."""
     transcript: str
     caller_name: Optional[str] = None
-    prospect_name: Optional[str] = None
+    recipients: Optional[str] = None  # People spoken to (e.g., "Receptionist", "John (Manager)")
+    owner_name: Optional[str] = None  # Target decision maker/owner
     company_name: Optional[str] = None
-    call_date: Optional[str] = None
+    company_location: Optional[str] = None
+    call_date_pkt: Optional[str] = None
     call_outcome: Optional[str] = None  # interested, callback, rejected, voicemail, no_answer, other
     interest_level: Optional[int] = None  # 1-10 scale
     objections: Optional[list[str]] = None
@@ -50,6 +55,7 @@ class CallAnalysis:
     call_summary: Optional[str] = None
     call_duration_estimate: Optional[str] = None
     # Processing metadata
+    timestamp: Optional[str] = None  # Format: DD-MM-YYYY_HH-MM-SS
     model_used: Optional[str] = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
@@ -60,13 +66,15 @@ def get_analysis_prompt() -> str:
     """Returns the prompt for Gemini to analyze cold calls."""
     return """Analyze this cold call recording carefully. Extract the following information:
 
-1. **Transcript**: Provide a verbatim transcription. Identify speakers by name if mentioned (e.g., "Hashaam:", "John:"), otherwise use "Caller:" and "Prospect:".
+1. **Transcript**: Provide a verbatim transcription. Identify speakers by name if mentioned (e.g., "Hashaam:", "John:"), otherwise use "Caller:" and "Recipient:".
 
 2. **Metadata**:
    - caller_name: The salesperson/caller's name
-   - prospect_name: The person being called (contact name)
+   - recipients: The name(s) and role(s) of the actual person/people spoken to on the call (e.g., "Receptionist", "Receptionist and John (Manager) if the receptionist is a co-owner then use '(co-owner)' etc..").
+   - owner_name: The name of the business owner or target decision maker (if mentioned/identified).
    - company_name: The business/company being called
-   - call_date: Date of the call if mentioned
+   - company_location: The location/city of the business if mentioned (e.g., "New York", "London"). Null if not mentioned.
+   - call_date_pkt: Date/Time of call in DD-MM-YYYY_HH-MM-SS format (local time/PKT)
 
 3. **Call Analysis**:
    - call_outcome: One of: "interested", "callback_scheduled", "rejected", "voicemail", "no_answer", "gatekeeper_block", "not_decision_maker", "other"
@@ -81,9 +89,11 @@ Respond ONLY with a valid JSON object with these exact keys:
 {
   "transcript": "...",
   "caller_name": "..." or null,
-  "prospect_name": "..." or null,
+  "recipients": "..." or null,
+  "owner_name": "..." or null,
   "company_name": "..." or null,
-  "call_date": "..." or null,
+  "company_location": "..." or null,
+  "call_date_pkt": "..." or null,
   "call_outcome": "...",
   "interest_level": number or null,
   "objections": ["...", "..."] or [],
@@ -123,12 +133,82 @@ def get_file_datetime(file_path: Path) -> str:
     return dt.strftime("%Y-%m-%d %H:%M")
 
 
+def extract_recording_timestamp(file_path: Path) -> str:
+    """
+    Extracts the recording timestamp from file metadata.
+    Falls back to modification time if metadata is missing.
+    Returns: DDMMYYYY_HHMMSS
+    """
+    timestamp = None
+    
+    try:
+        f = mutagen.File(str(file_path))
+        if f:
+            # Strategy 1: Common date/time tags
+            # TDRC: Recording time (ID3v2.4)
+            # TYER/TDAT/TIME: Older ID3
+            # ©day: M4A/MP4 creation date
+            
+            tags = f.tags if hasattr(f, 'tags') else {}
+            
+            date_str = None
+            
+            if tags:
+                # Try common keys
+                keys_to_check = ['TDRC', '©day', 'date', 'creation_time']
+                for key in keys_to_check:
+                    if key in tags:
+                        val = tags[key]
+                        if isinstance(val, list):
+                            date_str = str(val[0])
+                        else:
+                            date_str = str(val)
+                        break
+            
+            if date_str:
+                # Attempt to parse common formats
+                # 2023-10-27T14:30:00, 2023-10-27, etc.
+                formats = [
+                    "%Y-%m-%dT%H:%M:%S%z", # ISO with timezone
+                    "%Y-%m-%dT%H:%M:%SZ",  # ISO UTC
+                    "%Y-%m-%dT%H:%M:%S",   # ISO simple
+                    "%Y-%m-%d %H:%M",      # Simple date time
+                    "%Y-%m-%d",            # Date only
+                    "%Y",                  # Year only
+                ]
+                
+                for fmt in formats:
+                    try:
+                        # Simple cleanup before parsing
+                        clean_date = date_str.strip()
+                        dt = datetime.strptime(clean_date, fmt)
+                        # If we only got a date, combine with 00:00:00
+                        timestamp = dt.strftime("%d-%m-%Y_%H-%M-%S")
+                        break
+                    except ValueError:
+                        continue
+                        
+    except Exception as e:
+        logger.debug(f"Metadata extraction failed for {file_path}: {e}")
+
+    # Fallback to file system modification time
+    if not timestamp:
+        mtime = file_path.stat().st_mtime
+        dt = datetime.fromtimestamp(mtime)
+        timestamp = dt.strftime("%d-%m-%Y_%H-%M-%S")
+        
+    return timestamp
+
+
 def transcribe_and_analyze(client: genai.Client, audio_path: Path, model_name: str) -> Optional[CallAnalysis]:
     """Uploads audio to Gemini, transcribes and analyzes the cold call."""
     logger.info(f"Uploading: {audio_path.name}")
 
     # Get file date as fallback
     file_datetime = get_file_datetime(audio_path)
+    
+    # Generate detailed timestamp for filename from metadata
+    timestamp_prefix = extract_recording_timestamp(audio_path)
 
     try:
         uploaded_file = client.files.upload(file=str(audio_path))
@@ -185,16 +265,19 @@ def transcribe_and_analyze(client: genai.Client, audio_path: Path, model_name: s
         return None
 
     # Use file datetime as fallback if call_date not mentioned
-    call_date = result.get('call_date')
-    if not call_date:
-        call_date = file_datetime
+    call_date_pkt = result.get('call_date_pkt')
+    if not call_date_pkt:
+        # Use our standard timestamp format
+        call_date_pkt = timestamp_prefix
 
     return CallAnalysis(
         transcript=result.get('transcript', ''),
         caller_name=result.get('caller_name'),
-        prospect_name=result.get('prospect_name'),
+        recipients=result.get('recipients'),
+        owner_name=result.get('owner_name'),
         company_name=result.get('company_name'),
-        call_date=call_date,
+        company_location=result.get('company_location'),
+        call_date_pkt=call_date_pkt, # Mapping pkt date to our internal call_date_pkt field
         call_outcome=result.get('call_outcome'),
         interest_level=result.get('interest_level'),
         objections=result.get('objections', []),
@@ -202,6 +285,7 @@ def transcribe_and_analyze(client: genai.Client, audio_path: Path, model_name: s
         follow_up_actions=result.get('follow_up_actions', []),
         call_summary=result.get('call_summary'),
         call_duration_estimate=result.get('call_duration_estimate'),
+        timestamp=timestamp_prefix,
         model_used=model_name,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
@@ -215,15 +299,25 @@ def save_analysis(analysis: CallAnalysis, output_dir: Path, base_name: str, form
 
     # Build filename from metadata
     parts = []
+    
+    # Add timestamp prefix if available
+    if analysis.timestamp:
+        parts.append(analysis.timestamp)
+    
     if analysis.company_name:
         parts.append(sanitize_filename(analysis.company_name))
-    if analysis.prospect_name:
-        parts.append(sanitize_filename(analysis.prospect_name))
-    if analysis.call_date:
-        parts.append(sanitize_filename(analysis.call_date))
+    
+    # Use recipients for filename (who we actually talked to)
+    if analysis.recipients:
+        parts.append(sanitize_filename(analysis.recipients))
+    
+    if analysis.call_date_pkt:
+        # Sanitize date further for filename
+        date_part = sanitize_filename(analysis.call_date_pkt).replace(" ", "_").replace(":", "")
+        parts.append(date_part)
 
     if parts:
-        file_stem = " - ".join(parts)
+        file_stem = "_".join(parts)
     else:
         file_stem = base_name
 
@@ -257,12 +351,16 @@ def format_markdown(analysis: CallAnalysis) -> str:
     lines.append("## Call Information\n")
     if analysis.caller_name:
         lines.append(f"- **Caller**: {analysis.caller_name}")
-    if analysis.prospect_name:
-        lines.append(f"- **Prospect**: {analysis.prospect_name}")
+    if analysis.recipients:
+        lines.append(f"- **Recipients**: {analysis.recipients}")
+    if analysis.owner_name:
+        lines.append(f"- **Owner/Target**: {analysis.owner_name}")
     if analysis.company_name:
         lines.append(f"- **Company**: {analysis.company_name}")
-    if analysis.call_date:
-        lines.append(f"- **Date**: {analysis.call_date}")
+    if analysis.company_location:
+        lines.append(f"- **Location**: {analysis.company_location}")
+    if analysis.call_date_pkt:
+        lines.append(f"- **Date (PKT)**: {analysis.call_date_pkt}")
     if analysis.call_duration_estimate:
         lines.append(f"- **Duration**: {analysis.call_duration_estimate}")
     if analysis.call_outcome:
@@ -490,6 +588,11 @@ Examples:
         action="store_true",
         help="Enable verbose logging"
     )
+    parser.add_argument(
+        "--appwrite",
+        action="store_true",
+        help="Save transcripts to Appwrite database"
+    )
 
     args = parser.parse_args()
 
@@ -529,6 +632,18 @@ Examples:
         logger.error("Make sure GOOGLE_API_KEY is set in your environment or .env file")
         sys.exit(1)
 
+    # Initialize Appwrite if enabled
+    appwrite = None
+    if args.appwrite:
+        appwrite = init_appwrite()
+        if appwrite:
+            logger.info("Setting up Appwrite database...")
+            if not appwrite.setup_database():
+                logger.warning("Appwrite setup failed, continuing without database")
+                appwrite = None
+        else:
+            logger.warning("Appwrite credentials not configured, skipping database")
+
     # Process files
     results = []
     for i, audio_file in enumerate(audio_files, 1):
@@ -556,6 +671,12 @@ Examples:
 
             logger.info(f"  Saved: {', '.join(f.name for f in saved)}")
             logger.info(f"  Outcome: {analysis.call_outcome} | Interest: {analysis.interest_level}/10")
+
+            # Save to Appwrite if enabled
+            if appwrite:
+                doc_id = appwrite.save_transcript(analysis, audio_file.name)
+                if doc_id:
+                    logger.info(f"  Appwrite ID: {doc_id}")
 
             results.append((audio_file.name, analysis))
         else:
