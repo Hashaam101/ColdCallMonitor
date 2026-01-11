@@ -83,7 +83,45 @@ python transcribe_calls.py recordings/
 ### Specify Output Format
 
 ```bash
-python transcribe_calls.py audio.mp3 --format md json txt
+python transcribe_calls.py audio.mp3 --formats md json txt
+```
+
+### Save to Appwrite Database
+
+Use the `--appwrite` flag to store transcripts in your Appwrite database:
+
+```bash
+python transcribe_calls.py recordings/ --appwrite
+```
+
+This requires Appwrite credentials configured in your `.env` file. The script will automatically create the database and collection if they don't exist.
+
+### CLI Options
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output DIR` | Output directory (default: `./transcripts`) |
+| `-f, --formats` | Output formats: `json`, `md`, `txt` (default: `json md`) |
+| `-m, --model` | Gemini model to use (default: `gemini-2.5-flash`) |
+| `--resume` | Skip files that have already been processed |
+| `--no-summary` | Skip generating the summary report |
+| `--appwrite` | Save transcripts to Appwrite database |
+| `-v, --verbose` | Enable verbose logging |
+
+### Examples
+
+```bash
+# Process all files in a directory with JSON and Markdown output
+python transcribe_calls.py recordings/ -f json md
+
+# Use a custom output directory
+python transcribe_calls.py recordings/ -o my_transcripts/
+
+# Resume processing (skip already processed files)
+python transcribe_calls.py recordings/ --resume
+
+# Save to Appwrite and use a specific model
+python transcribe_calls.py recordings/ --appwrite -m gemini-2.0-flash
 ```
 
 ### Output
@@ -149,12 +187,6 @@ When using Appwrite integration, transcripts are stored with the following struc
 
 ```bash
 python add_sample_entry.py
-```
-
-### List Available Gemini Models
-
-```bash
-python list_models.py
 ```
 
 ## 📄 License
