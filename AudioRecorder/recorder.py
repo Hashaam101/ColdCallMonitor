@@ -48,7 +48,7 @@ def load_config() -> dict:
         pass
     return {
         "hotkey": DEFAULT_HOTKEY,
-        "save_mode": "ask",  # "ask" or "auto"
+        "save_mode": "default",  # "default" (recordings folder), "ask" or "auto"
         "save_dir": DEFAULT_SAVE_DIR
     }
 
@@ -625,8 +625,9 @@ class RecorderApp:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Audio Recorder")
-        self.root.geometry("450x430")
-        self.root.resizable(False, False)
+        self.root.geometry("450x520")
+        self.root.resizable(False, True)
+        self.root.minsize(450, 400)
 
         self.recorder = AudioRecorder()
         self.overlay = None
@@ -662,9 +663,44 @@ class RecorderApp:
                 foreground="orange"
             )
 
+    def _create_scrollable_frame(self, parent):
+        """Create a scrollable frame with canvas and scrollbar."""
+        # Create canvas and scrollbar
+        canvas = tk.Canvas(parent, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, padding=20)
+
+        # Configure scrolling
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        # Create window in canvas
+        canvas_frame = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+        # Make frame fill canvas width
+        def configure_canvas_width(event):
+            canvas.itemconfig(canvas_frame, width=event.width)
+        canvas.bind("<Configure>", configure_canvas_width)
+
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Enable mousewheel scrolling
+        def on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        canvas.bind_all("<MouseWheel>", on_mousewheel)
+
+        # Pack scrollbar and canvas
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        return scrollable_frame
+
     def setup_ui(self):
-        main_frame = ttk.Frame(self.root, padding=20)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        # Create scrollable main frame
+        main_frame = self._create_scrollable_frame(self.root)
 
         ttk.Label(
             main_frame, text="Audio Recorder",
@@ -687,7 +723,13 @@ class RecorderApp:
                 variable=self.mode_var, value=value
             ).pack(anchor=tk.W, pady=2)
 
-        # Advanced Settings
+        # Save Location Settings (moved from Advanced)
+        save_frame = ttk.LabelFrame(main_frame, text="Save Location", padding=10)
+        save_frame.pack(fill=tk.X, pady=(0, 15))
+
+        self._setup_save_location(save_frame)
+
+        # Advanced Settings (device selection only)
         self.advanced_frame = ttk.LabelFrame(main_frame, text="Advanced Settings", padding=10)
         self.advanced_visible = False
 
@@ -748,8 +790,52 @@ class RecorderApp:
         style.configure("Small.TButton", font=("Arial", 8))
         style.configure("Link.TButton", font=("Arial", 9, "underline"))
 
+    def _setup_save_location(self, parent_frame):
+        """Setup save location settings in the given frame."""
+        # Save mode radio buttons - default to 'default' (Recordings folder)
+        current_mode = self.config.get("save_mode", "default")
+        self.save_mode_var = tk.StringVar(value=current_mode)
+
+        ttk.Radiobutton(
+            parent_frame, text="Ask where to save every time",
+            variable=self.save_mode_var, value="ask",
+            command=self._on_save_mode_change
+        ).pack(anchor=tk.W, pady=2)
+
+        ttk.Radiobutton(
+            parent_frame, text="Save in Recordings folder (default)",
+            variable=self.save_mode_var, value="default",
+            command=self._on_save_mode_change
+        ).pack(anchor=tk.W, pady=2)
+
+        ttk.Radiobutton(
+            parent_frame, text="Auto-save to custom folder:",
+            variable=self.save_mode_var, value="auto",
+            command=self._on_save_mode_change
+        ).pack(anchor=tk.W, pady=2)
+
+        # Save directory selection (only for custom folder)
+        save_dir_frame = ttk.Frame(parent_frame)
+        save_dir_frame.pack(fill=tk.X, pady=(5, 0))
+
+        self.save_dir_var = tk.StringVar(value=self.config.get("save_dir", DEFAULT_SAVE_DIR))
+        self.save_dir_entry = ttk.Entry(
+            save_dir_frame, textvariable=self.save_dir_var,
+            state="readonly", width=40
+        )
+        self.save_dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.browse_btn = ttk.Button(
+            save_dir_frame, text="Browse...",
+            command=self._browse_save_dir
+        )
+        self.browse_btn.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # Update browse button state
+        self._update_save_dir_state()
+
     def _setup_advanced(self):
-        # Device selection
+        # Device selection only (save settings moved to main UI)
         ttk.Label(self.advanced_frame, text="Microphone:").pack(anchor=tk.W)
         self.mic_var = tk.StringVar()
         self.mic_combo = ttk.Combobox(
@@ -772,53 +858,6 @@ class RecorderApp:
             self.advanced_frame, text="Refresh Devices",
             command=self._refresh_combos
         ).pack(anchor=tk.E, pady=(5, 0))
-
-        # Separator
-        ttk.Separator(self.advanced_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
-
-        # Save settings
-        ttk.Label(
-            self.advanced_frame, text="Save Location:",
-            font=("Arial", 10, "bold")
-        ).pack(anchor=tk.W)
-
-        # Save mode radio buttons
-        save_mode_frame = ttk.Frame(self.advanced_frame)
-        save_mode_frame.pack(fill=tk.X, pady=(5, 0))
-
-        self.save_mode_var = tk.StringVar(value=self.config.get("save_mode", "ask"))
-
-        ttk.Radiobutton(
-            save_mode_frame, text="Ask every time",
-            variable=self.save_mode_var, value="ask",
-            command=self._on_save_mode_change
-        ).pack(anchor=tk.W)
-
-        ttk.Radiobutton(
-            save_mode_frame, text="Auto-save to folder:",
-            variable=self.save_mode_var, value="auto",
-            command=self._on_save_mode_change
-        ).pack(anchor=tk.W)
-
-        # Save directory selection
-        save_dir_frame = ttk.Frame(self.advanced_frame)
-        save_dir_frame.pack(fill=tk.X, pady=(5, 0))
-
-        self.save_dir_var = tk.StringVar(value=self.config.get("save_dir", DEFAULT_SAVE_DIR))
-        self.save_dir_entry = ttk.Entry(
-            save_dir_frame, textvariable=self.save_dir_var,
-            state="readonly", width=40
-        )
-        self.save_dir_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        self.browse_btn = ttk.Button(
-            save_dir_frame, text="Browse...",
-            command=self._browse_save_dir
-        )
-        self.browse_btn.pack(side=tk.RIGHT, padx=(5, 0))
-
-        # Update browse button state
-        self._update_save_dir_state()
 
     def _refresh_combos(self):
         self._load_devices()
@@ -943,7 +982,7 @@ class RecorderApp:
         if self.advanced_visible:
             self.advanced_frame.pack_forget()
             self.toggle_btn.config(text="Show Advanced Settings")
-            self.root.geometry("450x430")
+            self.root.geometry("450x520")
             self.advanced_visible = False
         else:
             self.toggle_btn.pack_forget()
@@ -951,7 +990,7 @@ class RecorderApp:
             self.toggle_btn.pack(anchor=tk.W, pady=(0, 10))
 
             self.toggle_btn.config(text="Hide Advanced Settings")
-            self.root.geometry("450x700")
+            self.root.geometry("450x650")
             self.advanced_visible = True
             self._refresh_combos()
 
@@ -1033,9 +1072,14 @@ class RecorderApp:
         timestamp = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
         save_mode = self.config.get("save_mode", "ask")
 
-        if save_mode == "auto":
-            # Auto-save to configured folder
-            save_dir = Path(self.config.get("save_dir", DEFAULT_SAVE_DIR))
+        if save_mode == "auto" or save_mode == "default":
+            # Determine save directory based on mode
+            if save_mode == "default":
+                # Use default recordings folder (child of script directory)
+                save_dir = Path(__file__).parent / "recordings"
+            else:
+                # Use custom configured folder
+                save_dir = Path(self.config.get("save_dir", DEFAULT_SAVE_DIR))
 
             # Create directory if it doesn't exist
             try:
