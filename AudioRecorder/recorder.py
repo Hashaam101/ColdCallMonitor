@@ -38,6 +38,17 @@ DEFAULT_HOTKEY = "alt+r"
 DEFAULT_SAVE_DIR = str(Path(__file__).parent / "recordings")
 
 
+def get_resource_path(relative_path: str) -> Path:
+    """Get absolute path to resource, works for dev and PyInstaller."""
+    import sys
+    if hasattr(sys, '_MEIPASS'):
+        # Running as compiled exe
+        return Path(sys._MEIPASS) / relative_path
+    return Path(__file__).parent / relative_path
+
+
+CALLING_BEEP_FILE = get_resource_path("calling_beep.wav")
+
 def load_config() -> dict:
     """Load configuration from file."""
     try:

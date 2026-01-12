@@ -34,12 +34,9 @@ COMPANIES = [
 
 RECIPIENTS = [
     "John Smith", "Sarah Johnson", "Michael Chen", "Emily Davis",
-    "David Wilson", "Jennifer Brown", "Robert Taylor", "Lisa Anderson",
-    "James Martinez", "Amanda Thompson", "Christopher Lee", "Michelle Garcia",
-    "Daniel Rodriguez", "Stephanie White", "Matthew Harris", "Nicole Clark",
 ]
 
-CALLERS = ["Alex", "Jordan", "Sam", "Taylor", "Casey"]
+CALLERS = ["Alex", "Jordan", "Sam"]
 
 CALL_OUTCOMES = [
     "Interested", "Not Interested", "Callback", "No Answer", "Wrong Number", "Other"
@@ -49,39 +46,21 @@ OBJECTIONS = [
     "Too expensive",
     "Already have a solution",
     "Not the right time",
-    "Need to consult with team",
     "Budget constraints",
-    "Happy with current provider",
-    "Not a priority right now",
-    "Need more information",
-    "Decision maker not available",
-    "Company policy restrictions",
 ]
 
 PAIN_POINTS = [
     "Manual processes taking too long",
     "Lack of real-time visibility",
-    "Integration issues with existing systems",
     "High operational costs",
-    "Poor customer experience",
-    "Data silos across departments",
-    "Compliance challenges",
     "Scalability limitations",
-    "Staff training difficulties",
-    "Reporting inefficiencies",
 ]
 
 FOLLOW_UP_ACTIONS = [
     "Send product brochure",
     "Schedule demo call",
     "Follow up in 2 weeks",
-    "Connect with technical team",
     "Send pricing proposal",
-    "Arrange site visit",
-    "Send case studies",
-    "Schedule meeting with decision maker",
-    "Provide ROI analysis",
-    "Send trial access",
 ]
 
 # Sample transcript templates
@@ -139,7 +118,6 @@ TEAM_MEMBERS = [
     {"name": "Alice Johnson", "email": "alice@company.com", "role": "admin"},
     {"name": "Bob Smith", "email": "bob@company.com", "role": "member"},
     {"name": "Carol Williams", "email": "carol@company.com", "role": "member"},
-    {"name": "David Brown", "email": "david@company.com", "role": "member"},
 ]
 
 NOTES = [
@@ -309,6 +287,7 @@ def seed_data():
                 "company_name": company["name"],
                 "company_location": company["location"],
                 "owner_name": company.get("owner"),
+                "phone_numbers": company.get("phones"),
                 "google_maps_link": f"https://maps.google.com/?q={company['location'].replace(' ', '+')}",
             }
             # Remove None values
@@ -331,7 +310,7 @@ def seed_data():
     print("\n[3/5] Seeding Cold Calls & Transcripts...")
     cold_call_ids = []
 
-    num_calls = 25  # Number of sample calls to create
+    num_calls = 5  # Number of sample calls to create
 
     for i in range(num_calls):
         company = random.choice(COMPANIES)

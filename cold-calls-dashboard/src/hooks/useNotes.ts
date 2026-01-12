@@ -8,9 +8,12 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Query, ID } from 'appwrite';
-import { databases, DATABASE_ID, NOTES_COLLECTION_ID } from '@/lib/appwrite';
+import { databases, DATABASE_ID } from '@/lib/appwrite';
 import { useAuth } from '@/lib/auth';
 import { toast } from 'sonner';
+
+// Notes collection ID - default to 'notes' if not set in environment
+const NOTES_COLLECTION_ID = process.env.NEXT_PUBLIC_APPWRITE_NOTES_COLLECTION_ID || 'notes';
 
 export interface Note {
     $id: string;
