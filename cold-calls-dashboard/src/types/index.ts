@@ -6,6 +6,44 @@
  */
 
 // ============================================
+// Company Types (Normalized)
+// ============================================
+
+export interface Company {
+    // System fields (Appwrite auto-managed)
+    $id: string;
+    $createdAt: string;
+    $updatedAt: string;
+
+    // Fields
+    owner_name: string | null;
+    company_name: string;
+    company_location: string | null;
+    google_maps_link: string | null;
+}
+
+export type CompanyCreateData = {
+    company_name: string;
+    owner_name?: string | null;
+    company_location?: string | null;
+    google_maps_link?: string | null;
+};
+
+// ============================================
+// Transcript Types (Normalized)
+// ============================================
+
+export interface Transcript {
+    // System fields
+    $id: string;
+    $createdAt: string;
+
+    // Fields
+    call_id: string;
+    transcript: string;
+}
+
+// ============================================
 // Cold Call Types
 // ============================================
 
@@ -15,15 +53,16 @@ export interface ColdCall {
     $createdAt: string;
     $updatedAt: string;
 
-    // Required fields
+    // Company reference (normalized)
+    company_id: string | null;
+    company?: Company | null;  // Populated when fetching with company data
+
+    // Transcript (fetched from separate table, included for convenience)
     transcript: string;
 
     // Optional fields
     caller_name: string | null;
     recipients: string | null;
-    owner_name: string | null;
-    company_name: string | null;
-    company_location: string | null;
     call_outcome: string | null;  // Values: Interested, Not Interested, Callback, No Answer, Wrong Number, Other
     interest_level: number | null; // Range: 1-10
     objections: string | null;     // JSON array stored as string
@@ -34,16 +73,19 @@ export interface ColdCall {
 
     // AI model metadata
     model_used: string | null;
-    input_tokens: number | null;
-    output_tokens: number | null;
-    total_tokens: number | null;
 
     // Team collaboration
     claimed_by: string | null;     // Reference to team_members.id, null = unclaimed
-    google_maps_link: string | null;
+
+    // === Backwards-compatible flattened fields (derived from company) ===
+    // These are populated by the data layer for UI convenience
+    owner_name?: string | null;
+    company_name?: string | null;
+    company_location?: string | null;
+    google_maps_link?: string | null;
 }
 
-export type ColdCallUpdateData = Partial<Omit<ColdCall, '$id' | '$createdAt' | '$updatedAt'>>;
+export type ColdCallUpdateData = Partial<Omit<ColdCall, '$id' | '$createdAt' | '$updatedAt' | 'company'>>;
 
 // Valid call outcome values
 export const CALL_OUTCOMES = [
@@ -56,6 +98,7 @@ export const CALL_OUTCOMES = [
 ] as const;
 
 export type CallOutcome = typeof CALL_OUTCOMES[number];
+
 
 // ============================================
 // Team Member Types

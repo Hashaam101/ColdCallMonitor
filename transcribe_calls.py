@@ -57,9 +57,6 @@ class CallAnalysis:
     # Processing metadata
     timestamp: Optional[str] = None  # Format: DD-MM-YYYY_HH-MM-SS
     model_used: Optional[str] = None
-    input_tokens: Optional[int] = None
-    output_tokens: Optional[int] = None
-    total_tokens: Optional[int] = None
 
 
 def get_analysis_prompt() -> str:
@@ -242,20 +239,6 @@ def transcribe_and_analyze(client: genai.Client, audio_path: Path, model_name: s
         logger.error("All retries exhausted")
         return None
 
-    # Extract token usage from response
-    input_tokens = None
-    output_tokens = None
-    total_tokens = None
-    try:
-        if hasattr(response, 'usage_metadata') and response.usage_metadata:
-            usage = response.usage_metadata
-            input_tokens = getattr(usage, 'prompt_token_count', None)
-            output_tokens = getattr(usage, 'candidates_token_count', None)
-            total_tokens = getattr(usage, 'total_token_count', None)
-            logger.info(f"Tokens: {input_tokens} in / {output_tokens} out / {total_tokens} total")
-    except Exception:
-        pass  # Token info is optional
-
     # Parse response
     try:
         result = parse_json_response(response.text)
@@ -287,9 +270,6 @@ def transcribe_and_analyze(client: genai.Client, audio_path: Path, model_name: s
         call_duration_estimate=result.get('call_duration_estimate'),
         timestamp=timestamp_prefix,
         model_used=model_name,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        total_tokens=total_tokens,
     )
 
 
@@ -370,15 +350,10 @@ def format_markdown(analysis: CallAnalysis) -> str:
     lines.append("")
 
     # Processing info section
-    lines.append("## Processing Info\n")
     if analysis.model_used:
+        lines.append("## Processing Info\n")
         lines.append(f"- **Model**: {analysis.model_used}")
-    if analysis.total_tokens is not None:
-        token_info = f"- **Tokens**: {analysis.total_tokens:,} total"
-        if analysis.input_tokens is not None and analysis.output_tokens is not None:
-            token_info += f" ({analysis.input_tokens:,} input / {analysis.output_tokens:,} output)"
-        lines.append(token_info)
-    lines.append("")
+        lines.append("")
 
     # Summary
     if analysis.call_summary:
@@ -431,9 +406,6 @@ def generate_summary_report(results: list[tuple[str, CallAnalysis]], output_dir:
     total_interest = 0
     interest_count = 0
     all_objections = {}
-    total_input_tokens = 0
-    total_output_tokens = 0
-    total_all_tokens = 0
     models_used = set()
 
     for _, analysis in results:
@@ -448,13 +420,6 @@ def generate_summary_report(results: list[tuple[str, CallAnalysis]], output_dir:
             obj_lower = obj.lower()
             all_objections[obj_lower] = all_objections.get(obj_lower, 0) + 1
 
-        # Track token usage
-        if analysis.input_tokens:
-            total_input_tokens += analysis.input_tokens
-        if analysis.output_tokens:
-            total_output_tokens += analysis.output_tokens
-        if analysis.total_tokens:
-            total_all_tokens += analysis.total_tokens
         if analysis.model_used:
             models_used.add(analysis.model_used)
 
@@ -467,14 +432,9 @@ def generate_summary_report(results: list[tuple[str, CallAnalysis]], output_dir:
         avg_interest = total_interest / interest_count
         lines.append(f"## Average Interest Level: {avg_interest:.1f}/10\n")
 
-    # Token usage summary
-    if total_all_tokens > 0:
-        lines.append("## Token Usage\n")
-        lines.append(f"- **Total Tokens**: {total_all_tokens:,}")
-        lines.append(f"- **Input Tokens**: {total_input_tokens:,}")
-        lines.append(f"- **Output Tokens**: {total_output_tokens:,}")
-        if models_used:
-            lines.append(f"- **Model(s)**: {', '.join(sorted(models_used))}")
+    if models_used:
+        lines.append("## Model(s) Used\n")
+        lines.append(f"- {', '.join(sorted(models_used))}")
         lines.append("")
 
     if all_objections:

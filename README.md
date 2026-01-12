@@ -173,9 +173,6 @@ When using Appwrite integration, transcripts are stored with the following struc
 | `call_summary`         | text    | Brief summary of the call             |
 | `call_duration_estimate` | string | Estimated call duration             |
 | `model_used`           | string  | Gemini model version used             |
-| `input_tokens`         | int     | API input token count                 |
-| `output_tokens`        | int     | API output token count                |
-| `total_tokens`         | int     | Total tokens consumed                 |
 
 ## 📋 Supported Audio Formats
 

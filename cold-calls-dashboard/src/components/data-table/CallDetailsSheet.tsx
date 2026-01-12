@@ -253,11 +253,8 @@ export function CallDetailsSheet({ call, open, onOpenChange, onSetAlert }: CallD
                                     </pre>
                                 </div>
                                 {call.model_used && (
-                                    <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t">
+                                    <div className="text-xs text-muted-foreground pt-2 border-t">
                                         <span>Analyzed with: {call.model_used}</span>
-                                        {call.total_tokens && (
-                                            <span>{call.total_tokens.toLocaleString()} tokens</span>
-                                        )}
                                     </div>
                                 )}
                             </TabsContent>

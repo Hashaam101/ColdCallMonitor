@@ -2,12 +2,19 @@
  * Cold Calls CRUD Hooks
  * 
  * React Query hooks for fetching, updating, and deleting cold calls.
+ * Handles normalized schema: companies and transcripts in separate tables.
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Query } from 'appwrite';
-import { databases, DATABASE_ID, COLDCALLS_COLLECTION_ID } from '@/lib/appwrite';
-import type { ColdCall, ColdCallFilters, ColdCallUpdateData, SortConfig } from '@/types';
+import {
+    databases,
+    DATABASE_ID,
+    COLDCALLS_COLLECTION_ID,
+    COMPANIES_COLLECTION_ID,
+    TRANSCRIPTS_COLLECTION_ID
+} from '@/lib/appwrite';
+import type { ColdCall, ColdCallFilters, ColdCallUpdateData, SortConfig, Company, Transcript } from '@/types';
 
 // Query key factory
 export const coldCallsKeys = {
@@ -67,6 +74,54 @@ function buildQueries(filters: ColdCallFilters, sort?: SortConfig): string[] {
     return queries;
 }
 
+/**
+ * Enriches cold calls with company and transcript data from normalized tables.
+ * Flattens company fields for backwards-compatible UI rendering.
+ */
+async function enrichColdCalls(calls: ColdCall[]): Promise<ColdCall[]> {
+    if (calls.length === 0) return calls;
+
+    // Collect unique company IDs
+    const companyIds = [...new Set(calls.map(c => c.company_id).filter(Boolean))] as string[];
+    const callIds = calls.map(c => c.$id);
+
+    // Fetch companies and transcripts in parallel
+    const [companiesResult, transcriptsResult] = await Promise.all([
+        companyIds.length > 0
+            ? databases.listDocuments(DATABASE_ID, COMPANIES_COLLECTION_ID, [
+                Query.equal('$id', companyIds)
+            ])
+            : Promise.resolve({ documents: [] }),
+        callIds.length > 0
+            ? databases.listDocuments(DATABASE_ID, TRANSCRIPTS_COLLECTION_ID, [
+                Query.equal('call_id', callIds)
+            ])
+            : Promise.resolve({ documents: [] })
+    ]);
+
+    // Build lookup maps
+    const companiesMap = new Map<string, Company>();
+    (companiesResult.documents as unknown as Company[]).forEach(c => companiesMap.set(c.$id, c));
+
+    const transcriptsMap = new Map<string, string>();
+    (transcriptsResult.documents as unknown as Transcript[]).forEach(t => transcriptsMap.set(t.call_id, t.transcript));
+
+    // Enrich calls with flattened company data and transcripts
+    return calls.map(call => {
+        const company = call.company_id ? companiesMap.get(call.company_id) : null;
+        return {
+            ...call,
+            company: company || null,
+            transcript: transcriptsMap.get(call.$id) || '',
+            // Flatten company fields for UI backwards compatibility
+            owner_name: company?.owner_name || null,
+            company_name: company?.company_name || null,
+            company_location: company?.company_location || null,
+            google_maps_link: company?.google_maps_link || null,
+        };
+    });
+}
+
 // Fetch cold calls with filters and sorting
 export function useColdCalls(filters: ColdCallFilters = {}, sort?: SortConfig) {
     return useQuery({
@@ -83,10 +138,14 @@ export function useColdCalls(filters: ColdCallFilters = {}, sort?: SortConfig) {
                 queries
             );
 
-            return response.documents as unknown as ColdCall[];
+            const calls = response.documents as unknown as ColdCall[];
+
+            // Enrich with company and transcript data
+            return enrichColdCalls(calls);
         },
     });
 }
+
 
 // Fetch a single cold call
 export function useColdCall(id: string) {
@@ -103,11 +162,16 @@ export function useColdCall(id: string) {
                 id
             );
 
-            return document as unknown as ColdCall;
+            const call = document as unknown as ColdCall;
+
+            // Enrich with company and transcript data
+            const enriched = await enrichColdCalls([call]);
+            return enriched[0];
         },
         enabled: !!id,
     });
 }
+
 
 // Update a cold call
 export function useUpdateColdCall() {
