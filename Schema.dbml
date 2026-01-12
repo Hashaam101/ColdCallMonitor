@@ -1,25 +1,66 @@
+// Cold Calls Dashboard - Database Schema
+// This is the master schema definition for all collections
+// Note: Appwrite uses $id, $createdAt, $updatedAt as system fields
+
 Table ColdCalls {
-  id varchar [pk, unique, not null, default: 'uuid()']
+  id varchar [pk, unique, not null, note: 'Appwrite: $id']
   transcript text [not null]
   caller_name varchar
   recipients varchar
   owner_name varchar
   company_name varchar
   company_location varchar
-  call_outcome varchar
-  interest_level int
-  objections text
-  pain_points text
-  follow_up_actions text
+  call_outcome varchar [note: 'Values: Interested, Not Interested, Callback, No Answer, Wrong Number, Other']
+  interest_level int [note: 'Range: 1-10']
+  objections text [note: 'JSON array stored as string']
+  pain_points text [note: 'JSON array stored as string']
+  follow_up_actions text [note: 'JSON array stored as string']
   call_summary text
   call_duration_estimate varchar
-  
 
+  // AI model metadata
   model_used varchar
   input_tokens int
   output_tokens int
   total_tokens int
 
-  createdAt datetime [default: `now()`]
-  updatedAt datetime [default: `now()`]
+  // Team collaboration
+  claimed_by varchar [ref: > team_members.id, note: 'nullable = unclaimed']
+  google_maps_link varchar
+
+  // System fields (auto-managed by Appwrite)
+  createdAt datetime [default: `now()`, note: 'Appwrite: $createdAt']
+  updatedAt datetime [default: `now()`, note: 'Appwrite: $updatedAt']
 }
+
+Table team_members {
+  id varchar [pk, note: 'Appwrite: $id - same as auth user ID']
+  name varchar [not null]
+  email varchar [not null]
+  role varchar [not null, note: 'Values: admin, member']
+
+  // System fields
+  createdAt datetime [default: `now()`, note: 'Appwrite: $createdAt']
+  updatedAt datetime [default: `now()`, note: 'Appwrite: $updatedAt']
+}
+
+Table alerts {
+  id varchar [pk, note: 'Appwrite: $id']
+  created_by varchar [not null, ref: > team_members.id]
+  target_user varchar [not null, ref: > team_members.id]
+  entity_type varchar [not null, note: 'Values: cold_call (extensible)']
+  entity_id varchar [not null, note: 'Reference to entity document ID']
+  entity_label varchar [note: 'Display name, e.g., "TechCorp - John"']
+  alert_time datetime [note: 'null = instant alert, otherwise scheduled']
+  message text
+  is_dismissed boolean [default: false]
+
+  // System fields
+  createdAt datetime [default: `now()`, note: 'Appwrite: $createdAt']
+  updatedAt datetime [default: `now()`, note: 'Appwrite: $updatedAt']
+}
+
+// Relationships
+// Ref: ColdCalls.claimed_by > team_members.id
+// Ref: alerts.created_by > team_members.id
+// Ref: alerts.target_user > team_members.id

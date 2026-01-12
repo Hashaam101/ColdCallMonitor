@@ -37,8 +37,27 @@ TRANSCRIPT_ATTRIBUTES = [
     {"key": "input_tokens", "type": "integer", "required": False},
     {"key": "output_tokens", "type": "integer", "required": False},
     {"key": "total_tokens", "type": "integer", "required": False},
+    {"key": "claimed_by", "type": "string", "size": 36, "required": False},
+    {"key": "google_maps_link", "type": "string", "size": 1000, "required": False},
 ]
 
+
+TEAM_MEMBERS_ATTRIBUTES = [
+    {"key": "name", "type": "string", "size": 100, "required": True},
+    {"key": "email", "type": "string", "size": 100, "required": True},
+    {"key": "role", "type": "string", "size": 20, "required": True},  # 'admin' or 'member'
+]
+
+ALERTS_ATTRIBUTES = [
+    {"key": "created_by", "type": "string", "size": 36, "required": True},
+    {"key": "target_user", "type": "string", "size": 36, "required": True},
+    {"key": "entity_type", "type": "string", "size": 50, "required": True},
+    {"key": "entity_id", "type": "string", "size": 36, "required": True},
+    {"key": "entity_label", "type": "string", "size": 100, "required": False},
+    {"key": "alert_time", "type": "string", "size": 30, "required": False},  # ISO datetime
+    {"key": "message", "type": "string", "size": 500, "required": False},
+    {"key": "is_dismissed", "type": "boolean", "required": False, "default": False},
+]
 
 class AppwriteService:
     """Service for interacting with Appwrite database."""
@@ -49,6 +68,8 @@ class AppwriteService:
         self.api_key = os.getenv("APPWRITE_API_KEY")
         self.database_id = os.getenv("APPWRITE_DATABASE_ID", "ColdCalls")
         self.collection_id = os.getenv("APPWRITE_COLLECTION_ID", "coldcalls")
+        self.team_members_collection_id = os.getenv("APPWRITE_TEAM_MEMBERS_COLLECTION_ID", "team_members")
+        self.alerts_collection_id = os.getenv("APPWRITE_ALERTS_COLLECTION_ID", "alerts")
 
         if not self.project_id or not self.api_key:
             raise ValueError(
@@ -64,64 +85,69 @@ class AppwriteService:
         self.databases = TablesDB(self.client)
 
     def setup_database(self) -> bool:
-        """Checks for database/collection and creates them if missing. Returns True if successful."""
+        """Checks for database/collections and creates them if missing. Returns True if successful."""
         try:
-            # Check if database already exists first (using TablesDB API)
+            # Check/Create Database
             try:
                 self.databases.get(database_id=self.database_id)
                 logger.info(f"Using existing database: {self.database_id}")
             except AppwriteException as e:
-                if e.code == 404:  # Not found, try to create
-                    try:
-                        self.databases.create(
-                            database_id=self.database_id,
-                            name="Cold Calls Database"
-                        )
-                        logger.info(f"Created new database: {self.database_id}")
-                    except AppwriteException as create_err:
-                        # If we hit plan limits here, we can't proceed unless the user
-                        # provides an existing database ID in .env
-                        if "limit" in str(create_err.message).lower():
-                            logger.error("Plan limit reached. Please provide an EXISTING database ID in APPWRITE_DATABASE_ID (.env)")
-                        raise create_err
+                if e.code == 404:
+                    self.databases.create(
+                        database_id=self.database_id,
+                        name="Cold Calls Database"
+                    )
+                    logger.info(f"Created new database: {self.database_id}")
                 else:
                     raise
 
-            # Try to check/create collection
-            try:
-                self.databases.get_table(
-                    database_id=self.database_id,
-                    table_id=self.collection_id
-                )
-                logger.info(f"Using existing collection: {self.collection_id}")
-                # Ensure attributes exist even if collection exists
-                self._create_attributes()
-                return True
-            except AppwriteException as e:
-                if e.code == 404:
-                    self.databases.create_table(
-                        database_id=self.database_id,
-                        table_id=self.collection_id,
-                        name="ColdCalls"
-                    )
-                    logger.info(f"Created collection: {self.collection_id}")
-                    self._create_attributes()
-                    return True
-                else:
-                    raise
+            # Setup Collections
+            self._setup_collection(self.collection_id, "ColdCalls", TRANSCRIPT_ATTRIBUTES)
+            self._setup_collection(self.team_members_collection_id, "TeamMembers", TEAM_MEMBERS_ATTRIBUTES)
+            self._setup_collection(self.alerts_collection_id, "Alerts", ALERTS_ATTRIBUTES)
+
+            return True
 
         except AppwriteException as e:
             logger.error(f"Failed to setup database: {e.message}")
             return False
 
-    def _create_attributes(self):
+    def _setup_collection(self, collection_id: str, name: str, attributes: list):
+        """Helper to check/create a collection and its attributes."""
+        try:
+            try:
+                self.databases.get_table(
+                    database_id=self.database_id,
+                    table_id=collection_id
+                )
+                logger.debug(f"Using existing collection: {name} ({collection_id})")
+            except AppwriteException as e:
+                if e.code == 404:
+                    self.databases.create_table(
+                        database_id=self.database_id,
+                        table_id=collection_id,
+                        name=name,
+                        permissions=[] # Default permissions, should be configured in Console for security
+                    )
+                    logger.info(f"Created collection: {name} ({collection_id})")
+                else:
+                    raise
+
+            # Ensure attributes exist
+            self._create_attributes(collection_id, attributes)
+
+        except AppwriteException as e:
+            logger.error(f"Failed to setup collection {name}: {e.message}")
+            raise e
+
+    def _create_attributes(self, collection_id: str, attributes: list):
         """Creates collection attributes based on schema."""
-        for attr in TRANSCRIPT_ATTRIBUTES:
+        for attr in attributes:
             try:
                 if attr["type"] == "string":
                     self.databases.create_string_column(
                         database_id=self.database_id,
-                        table_id=self.collection_id,
+                        table_id=collection_id,
                         key=attr["key"],
                         size=attr["size"],
                         required=attr["required"]
@@ -129,7 +155,7 @@ class AppwriteService:
                 elif attr["type"] == "integer":
                     kwargs = {
                         "database_id": self.database_id,
-                        "table_id": self.collection_id,
+                        "table_id": collection_id,
                         "key": attr["key"],
                         "required": attr["required"]
                     }
@@ -138,6 +164,14 @@ class AppwriteService:
                     if "max" in attr:
                         kwargs["max"] = attr["max"]
                     self.databases.create_integer_column(**kwargs)
+                elif attr["type"] == "boolean":
+                    self.databases.create_boolean_column(
+                        database_id=self.database_id,
+                        table_id=collection_id,
+                        key=attr["key"],
+                        required=attr["required"],
+                        default=attr.get("default", None)
+                    )
 
                 logger.debug(f"Created attribute: {attr['key']}")
             except AppwriteException as e:
