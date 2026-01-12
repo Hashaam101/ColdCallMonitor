@@ -365,6 +365,7 @@ export function CallDetailsSheet({ call, open, onOpenChange, onSetAlert }: CallD
 // Inner component to handle alerts tab content safely
 function AlertsTabContent({ callId }: { callId: string }) {
     const { data: alerts, isLoading } = useAlertsByEntity(callId);
+    const { data: teamMembers } = useTeamMembers();
 
     if (isLoading) {
         return <div className="text-center py-8 text-muted-foreground">Loading alerts...</div>;
@@ -379,10 +380,17 @@ function AlertsTabContent({ callId }: { callId: string }) {
         );
     }
 
+    const getUserName = (userId: string) => {
+        const member = teamMembers?.find(m => m.$id === userId);
+        return member?.name || 'Unknown User';
+    };
+
     return (
         <div className="space-y-4">
             {alerts.map(alert => {
                 const isDue = !alert.alert_time || new Date(alert.alert_time) <= new Date();
+                const userName = getUserName(alert.target_user);
+
                 return (
                     <div key={alert.$id} className={`p-4 rounded-lg border flex items-start gap-3 ${isDue ? 'bg-red-500/5 border-red-500/20' : 'bg-muted/30'}`}>
                         <div className={`mt-1 h-2 w-2 rounded-full ${isDue ? 'bg-red-500' : 'bg-blue-500'}`} />
@@ -397,9 +405,10 @@ function AlertsTabContent({ callId }: { callId: string }) {
                                     </span>
                                 )}
                             </div>
+                            <p className="text-sm font-medium mb-1">For: {userName}</p>
                             <p className="text-sm">{alert.message || 'No message'}</p>
                             <p className="text-xs text-muted-foreground mt-2">
-                                Created by you on {format(new Date(alert.$createdAt), 'MMM d')}
+                                Created on {format(new Date(alert.$createdAt), 'MMM d')}
                             </p>
                         </div>
                     </div>
