@@ -19,7 +19,7 @@ export const alertsKeys = {
     unreadCount: (userId: string) => [...alertsKeys.all, 'unread', userId] as const,
 };
 
-// Fetch alerts for current user
+// Fetch alerts for current user (due/triggered only)
 export function useAlerts() {
     const { teamMember } = useAuth();
 
@@ -32,24 +32,88 @@ export function useAlerts() {
 
             const now = new Date().toISOString();
 
-            const response = await databases.listDocuments(
-                DATABASE_ID,
-                ALERTS_COLLECTION_ID,
-                [
-                    Query.equal('target_user', teamMember.$id),
-                    Query.equal('is_dismissed', false),
-                    Query.or([
-                        Query.isNull('alert_time'),  // Instant alerts
-                        Query.lessThanEqual('alert_time', now),  // Scheduled alerts that are due
-                    ]),
-                    Query.orderDesc('$createdAt'),
-                    Query.limit(50),
-                ]
-            );
+            try {
+                // Fetch all non-dismissed alerts for user
+                // Simplified query to avoid index issues
+                const response = await databases.listDocuments(
+                    DATABASE_ID,
+                    ALERTS_COLLECTION_ID,
+                    [
+                        Query.equal('target_user', teamMember.$id),
+                        Query.equal('is_dismissed', false),
+                        Query.limit(100),
+                    ]
+                );
 
-            return response.documents as unknown as Alert[];
+                const documents = response.documents as unknown as Alert[];
+
+                // Filter for due alerts locally
+                // 1. Alert time is null (instant) OR
+                // 2. Alert time <= now
+                const dueAlerts = documents.filter(doc =>
+                    !doc.alert_time || new Date(doc.alert_time) <= new Date(now)
+                );
+
+                // Sort by createdAt desc
+                return dueAlerts.sort((a, b) =>
+                    new Date(b.$createdAt).getTime() - new Date(a.$createdAt).getTime()
+                );
+            } catch (error) {
+                console.error('Error fetching alerts:', error);
+                return [];
+            }
         },
         enabled: !!teamMember,
+        refetchInterval: 30000,
+    });
+}
+
+// Fetch ALL alerts (triggered + upcoming) for current user
+export function useAllAlerts() {
+    const { teamMember } = useAuth();
+
+    return useQuery({
+        queryKey: [...alertsKeys.listByUser(teamMember?.$id || ''), 'all'],
+        queryFn: async () => {
+            if (!DATABASE_ID || !ALERTS_COLLECTION_ID || !teamMember) {
+                return { triggered: [], upcoming: [] };
+            }
+
+            const now = new Date().toISOString();
+
+            try {
+                // Fetch all non-dismissed alerts
+                // Removed sort to avoid index errors, sorting in JS instead
+                const response = await databases.listDocuments(
+                    DATABASE_ID,
+                    ALERTS_COLLECTION_ID,
+                    [
+                        Query.equal('target_user', teamMember.$id),
+                        Query.equal('is_dismissed', false),
+                        Query.limit(100),
+                    ]
+                );
+
+                let allAlerts = response.documents as unknown as Alert[];
+
+                // Sort by createdAt desc (newest first)
+                allAlerts.sort((a, b) =>
+                    new Date(b.$createdAt).getTime() - new Date(a.$createdAt).getTime()
+                );
+
+                // Split into triggered and upcoming
+                const triggered = allAlerts.filter(a => !a.alert_time || new Date(a.alert_time) <= new Date(now));
+                const upcoming = allAlerts.filter(a => a.alert_time && new Date(a.alert_time) > new Date(now));
+
+                return { triggered, upcoming, all: allAlerts };
+            } catch (error) {
+                console.error('Error fetching alerts:', error);
+                // Return empty arrays on error to prevent crashes
+                return { triggered: [], upcoming: [], all: [] };
+            }
+        },
+        enabled: !!teamMember,
+        refetchInterval: 30000, // Refetch every 30 seconds to catch newly-due alerts
     });
 }
 
@@ -134,7 +198,9 @@ export function useDismissAlert() {
             return alertId;
         },
         onSuccess: () => {
+            // Invalidate all alert-related queries including entity-specific ones
             queryClient.invalidateQueries({ queryKey: alertsKeys.all });
+            queryClient.invalidateQueries({ queryKey: alertsKeys.lists() });
         },
     });
 }
@@ -153,7 +219,9 @@ export function useDeleteAlert() {
             return alertId;
         },
         onSuccess: () => {
+            // Invalidate all alert-related queries including entity-specific ones
             queryClient.invalidateQueries({ queryKey: alertsKeys.all });
+            queryClient.invalidateQueries({ queryKey: alertsKeys.lists() });
         },
     });
 }

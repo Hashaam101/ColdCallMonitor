@@ -5,6 +5,7 @@ import { AuthProvider } from "@/lib/auth";
 import { QueryProvider } from "@/lib/query-provider";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
+import { NotificationProvider } from "@/components/notifications";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -44,7 +45,9 @@ export default function RootLayout({
         >
           <QueryProvider>
             <AuthProvider>
-              {children}
+              <NotificationProvider>
+                {children}
+              </NotificationProvider>
               <Toaster />
             </AuthProvider>
           </QueryProvider>
@@ -53,3 +56,4 @@ export default function RootLayout({
     </html>
   );
 }
+

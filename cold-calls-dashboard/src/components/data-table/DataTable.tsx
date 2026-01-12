@@ -9,6 +9,7 @@ import { FilterBar } from './FilterBar';
 import { BulkActions } from './BulkActions';
 import { EditableCell } from './EditableCell';
 import { CallDetailsSheet } from './CallDetailsSheet';
+import { AlertBellButton } from './AlertBellButton';
 import { AlertDialog } from '@/components/alerts/AlertDialog';
 
 import { StatsCards } from '@/components/dashboard/StatsCards';
@@ -525,21 +526,11 @@ export function DataTable() {
                                                     <TooltipContent>View Details</TooltipContent>
                                                 </Tooltip>
 
-                                                {/* 2. Alerts (Bell) */}
-                                                <Tooltip delayDuration={300}>
-                                                    <TooltipTrigger asChild>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            onClick={() => handleSetAlert(call)}
-                                                            className="h-8 w-8 text-muted-foreground/50 hover:text-foreground"
-                                                        >
-                                                            <Bell className="h-4 w-4" />
-                                                            {/* We can add logic for alert active color here later */}
-                                                        </Button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>Set Alert</TooltipContent>
-                                                </Tooltip>
+                                                {/* 2. Alerts (Bell) - Dynamic styling based on alert state */}
+                                                <AlertBellButton
+                                                    entityId={call.$id}
+                                                    onClick={() => handleSetAlert(call)}
+                                                />
 
 
                                                 {/* 3. Claim (Person/Avatar) */}

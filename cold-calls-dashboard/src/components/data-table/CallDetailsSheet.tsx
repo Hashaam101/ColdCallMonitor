@@ -29,7 +29,8 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { useTeamMembers } from '@/hooks';
+import { useTeamMembers, useAlertsByEntity } from '@/hooks';
+import { Bell } from 'lucide-react';
 
 interface CallDetailsSheetProps {
     call: ColdCall | null;
@@ -131,11 +132,17 @@ export function CallDetailsSheet({ call, open, onOpenChange, onSetAlert }: CallD
                 <ScrollArea className="flex-1">
                     <div className="px-6 py-4">
                         <Tabs defaultValue="overview" className="w-full">
-                            <TabsList className="grid w-full grid-cols-3 mb-4">
+                            <TabsList className="grid w-full grid-cols-4 mb-4">
                                 <TabsTrigger value="overview">Overview</TabsTrigger>
                                 <TabsTrigger value="transcript">Transcript</TabsTrigger>
                                 <TabsTrigger value="insights">Insights</TabsTrigger>
+                                <TabsTrigger value="alerts">Alerts</TabsTrigger>
                             </TabsList>
+
+                            {/* Alert Tab Content */}
+                            <TabsContent value="alerts">
+                                <AlertsTabContent callId={call.$id} />
+                            </TabsContent>
 
                             {/* Overview Tab */}
                             <TabsContent value="overview" className="space-y-6">
@@ -352,5 +359,52 @@ export function CallDetailsSheet({ call, open, onOpenChange, onSetAlert }: CallD
                 </div>
             </SheetContent>
         </Sheet>
+    );
+}
+
+// Inner component to handle alerts tab content safely
+function AlertsTabContent({ callId }: { callId: string }) {
+    const { data: alerts, isLoading } = useAlertsByEntity(callId);
+
+    if (isLoading) {
+        return <div className="text-center py-8 text-muted-foreground">Loading alerts...</div>;
+    }
+
+    if (!alerts || alerts.length === 0) {
+        return (
+            <div className="text-center py-8 text-muted-foreground">
+                <Bell className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No alerts set for this call</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            {alerts.map(alert => {
+                const isDue = !alert.alert_time || new Date(alert.alert_time) <= new Date();
+                return (
+                    <div key={alert.$id} className={`p-4 rounded-lg border flex items-start gap-3 ${isDue ? 'bg-red-500/5 border-red-500/20' : 'bg-muted/30'}`}>
+                        <div className={`mt-1 h-2 w-2 rounded-full ${isDue ? 'bg-red-500' : 'bg-blue-500'}`} />
+                        <div>
+                            <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-sm font-medium ${isDue ? 'text-red-500' : 'text-blue-500'}`}>
+                                    {isDue ? 'Due Now' : 'Upcoming'}
+                                </span>
+                                {alert.alert_time && (
+                                    <span className="text-xs text-muted-foreground">
+                                        • {format(new Date(alert.alert_time), 'PPp')}
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-sm">{alert.message || 'No message'}</p>
+                            <p className="text-xs text-muted-foreground mt-2">
+                                Created by you on {format(new Date(alert.$createdAt), 'MMM d')}
+                            </p>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
     );
 }
