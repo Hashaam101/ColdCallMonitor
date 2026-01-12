@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -15,9 +16,9 @@ import {
     Settings,
     ChevronLeft,
     ChevronRight,
-    Database,
     Calendar,
 } from 'lucide-react';
+
 
 interface NavItem {
     title: string;
@@ -161,8 +162,14 @@ export function Sidebar({ unreadAlerts = 0, collapsed = false, onCollapsedChange
                     'flex items-center h-14 border-b border-border px-3',
                     isCollapsed ? 'justify-center' : 'gap-3'
                 )}>
-                    <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <Database className="w-4 h-4 text-primary" />
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                        <Image
+                            src="/logo.svg"
+                            alt="Cold Calls Dashboard"
+                            width={32}
+                            height={32}
+                            className="w-full h-full object-contain dark:invert dark:brightness-90 dark:hue-rotate-180"
+                        />
                     </div>
                     {!isCollapsed && (
                         <div className="flex flex-col min-w-0">

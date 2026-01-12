@@ -14,6 +14,18 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Cold Calls Dashboard",
   description: "Team collaboration dashboard for cold call data management",
+  icons: {
+    icon: [
+      { url: "/favicon/favicon-96x96.png", sizes: "96x96", type: "image/png" },
+      { url: "/favicon/favicon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/favicon/favicon.ico",
+    apple: { url: "/favicon/apple-touch-icon.png", sizes: "180x180" },
+  },
+  manifest: "/favicon/site.webmanifest",
+  appleWebApp: {
+    title: "Cold Calls Dashboard",
+  },
 };
 
 export default function RootLayout({
