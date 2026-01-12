@@ -7,12 +7,7 @@
  * This hook is kept for backwards compatibility but no longer subscribes to changes.
  */
 
-import { useEffect, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { client, DATABASE_ID, COLDCALLS_COLLECTION_ID, ALERTS_COLLECTION_ID } from '@/lib/appwrite';
-import { cacheService } from '@/lib/cache-service';
-import { coldCallsKeys } from './useColdCalls';
-import { alertsKeys } from './useAlerts';
+
 
 // Disabled: Real-time cold calls subscription
 // Use manual sync button instead for optimization

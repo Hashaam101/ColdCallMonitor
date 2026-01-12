@@ -22,8 +22,8 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
                         staleTime: 10 * 60 * 1000, // 10 minutes - data stays fresh longer
                         gcTime: 1000 * 60 * 60, // 1 hour - keep cached data for longer
                         refetchOnWindowFocus: false, // Don't refetch when window regains focus
-                        refetchOnReconnect: 'stale', // Only refetch if data is stale
-                        refetchOnMount: 'stale', // Only refetch if data is stale
+                        refetchOnReconnect: true, // Only refetch if data is stale
+                        refetchOnMount: true, // Only refetch if data is stale
                         retry: 1, // Reduce retry attempts
                         retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
                     },

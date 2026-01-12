@@ -47,7 +47,6 @@ export function AlertDialog({ open, onOpenChange, call }: AlertDialogProps) {
 
     useEffect(() => {
         if (open && teamMember) {
-            // eslint-disable-next-line react-hooks/set-state-in-effect
             setTargetUserId(teamMember.$id);
             setMessage('');
             setAlertTime('');
@@ -57,6 +56,7 @@ export function AlertDialog({ open, onOpenChange, call }: AlertDialogProps) {
 
     const handleGapSelect = (minutes: number) => {
         setSelectedGap(minutes);
+        // eslint-disable-next-line react-hooks/purity
         const futureTime = new Date(Date.now() + minutes * 60 * 1000);
         // Format for datetime-local input (YYYY-MM-DDTHH:mm) in LOCAL time
         const year = futureTime.getFullYear();
@@ -189,4 +189,3 @@ export function AlertDialog({ open, onOpenChange, call }: AlertDialogProps) {
         </Dialog>
     );
 }
-

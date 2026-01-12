@@ -1,3 +1,15 @@
+declare global {
+  interface Window {
+    __cacheDebug: {
+      metrics: typeof getCacheMetrics;
+      print: typeof printCacheMetrics;
+      clear: () => void;
+      stats: () => CacheStats;
+      printStats: () => void;
+    };
+  }
+}
+
 /**
  * Cache Monitoring Utilities
  * 
@@ -140,7 +152,7 @@ export const cacheStatsTracker = new CacheStatsTracker();
  */
 export function setupCacheInspection() {
     if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-        (window as any).__cacheDebug = {
+        window.__cacheDebug = {
             metrics: getCacheMetrics,
             print: printCacheMetrics,
             clear: () => cacheService.clear(),

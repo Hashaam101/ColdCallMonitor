@@ -9,6 +9,8 @@
  * This significantly reduces database reads and bandwidth usage on Appwrite's free plan.
  */
 
+import type { ColdCallFilters, SortConfig } from '@/types';
+
 interface CacheEntry<T> {
     data: T;
     timestamp: number;
@@ -26,7 +28,7 @@ const DEFAULT_CACHE_CONFIG: CacheConfig = {
 };
 
 class CacheService {
-    private memoryCache = new Map<string, CacheEntry<any>>();
+    private memoryCache = new Map<string, CacheEntry<unknown>>();
     private readonly storagePrefix = 'cache:';
 
     /**
@@ -146,7 +148,7 @@ class CacheService {
     }
 
     // Private helpers
-    private isExpired(entry: CacheEntry<any>): boolean {
+    private isExpired(entry: CacheEntry<unknown>): boolean {
         return Date.now() > entry.expiresAt;
     }
 
@@ -155,7 +157,8 @@ class CacheService {
             const stored = localStorage.getItem(this.storagePrefix + key);
             if (!stored) return null;
             return JSON.parse(stored);
-        } catch (e) {
+        } catch (_e) {
+            void _e; // Explicitly mark as used
             return null;
         }
     }
@@ -163,7 +166,8 @@ class CacheService {
     private removeFromStorage(key: string): void {
         try {
             localStorage.removeItem(this.storagePrefix + key);
-        } catch (e) {
+        } catch (_e) {
+            void _e; // Explicitly mark as used
             // Ignore errors
         }
     }
@@ -177,7 +181,7 @@ export const cacheService = new CacheService();
  */
 export const cacheKeys = {
     // Cold calls
-    coldCalls: (filters?: any, sort?: any) =>
+    coldCalls: (filters?: ColdCallFilters, sort?: SortConfig) =>
         `coldcalls:list:${JSON.stringify({ filters, sort }).substring(0, 50)}`,
     coldCall: (id: string) => `coldcalls:detail:${id}`,
     coldCallsStats: () => 'coldcalls:stats',

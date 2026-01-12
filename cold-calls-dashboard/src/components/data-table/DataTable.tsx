@@ -26,7 +26,7 @@ import { Button } from '@/components/ui/button';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { ChevronLeft, ChevronRight, Eye, User, Bell } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Eye, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {

@@ -13,6 +13,13 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    files: ["scripts/**/*.js"], // Target JavaScript files in the scripts directory
+    rules: {
+      "@typescript-eslint/no-require-imports": "off", // Disable the rule
+      "@typescript-eslint/no-unused-vars": "off" // Also disable unused vars for scripts as they might be utility.
+    },
+  }
 ]);
 
 export default eslintConfig;

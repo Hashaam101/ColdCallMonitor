@@ -20,7 +20,12 @@ type NotificationPermission = 'default' | 'granted' | 'denied';
 export function useNotifications() {
     const { user } = useAuth();
     const { data: alerts } = useAlerts();
-    const [permission, setPermission] = useState<NotificationPermission>('default');
+    const [permission, setPermission] = useState<NotificationPermission>(() => {
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+            return Notification.permission as NotificationPermission;
+        }
+        return 'default'; // Default to 'default' if Notification API not available
+    });
     const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const notifiedAlertsRef = useRef<Set<string>>(new Set());
@@ -29,17 +34,15 @@ export function useNotifications() {
     // Check initial permission state
     useEffect(() => {
         if (typeof window !== 'undefined' && 'Notification' in window) {
-            setPermission(Notification.permission);
-
             // Show prompt if permission not yet requested and user is logged in
-            if (Notification.permission === 'default' && user) {
+            if (permission === 'default' && user && !showPermissionPrompt) { // Added !showPermissionPrompt // Use 'permission' from state, which is initialized
                 const dismissed = localStorage.getItem('notification-prompt-dismissed');
                 if (!dismissed) {
-                    setShowPermissionPrompt(true);
+                    setTimeout(() => setShowPermissionPrompt(true), 0);
                 }
             }
         }
-    }, [user]);
+    }, [user, permission, showPermissionPrompt]);
 
     // Request permission
     const requestPermission = useCallback(async () => {

@@ -119,7 +119,7 @@ export function useAllAlerts() {
                     ]
                 );
 
-                let allAlerts = response.documents as unknown as Alert[];
+                const allAlerts = response.documents as unknown as Alert[];
 
                 // Sort by createdAt desc (newest first)
                 allAlerts.sort((a, b) =>
