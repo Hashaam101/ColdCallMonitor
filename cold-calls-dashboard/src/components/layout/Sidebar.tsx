@@ -20,6 +20,7 @@ import {
     ChevronRight,
     Calendar,
     RefreshCw,
+    StickyNote,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -53,14 +54,14 @@ export function Sidebar({ unreadAlerts = 0, collapsed = false, onCollapsedChange
     const handleManualSync = async () => {
         try {
             setIsSyncing(true);
-            
+
             // Clear all caches
             cacheService.clear();
             cacheService.invalidatePattern('*');
-            
+
             // Invalidate all React Query caches
             await queryClient.invalidateQueries();
-            
+
             toast.success('Data synced with database', {
                 description: 'All data has been refreshed',
             });
@@ -79,6 +80,11 @@ export function Sidebar({ unreadAlerts = 0, collapsed = false, onCollapsedChange
             title: 'Cold Calls',
             href: '/',
             icon: <Phone className="h-5 w-5" />,
+        },
+        {
+            title: 'Notes',
+            href: '/notes',
+            icon: <StickyNote className="h-5 w-5" />,
         },
         {
             title: 'Alerts',

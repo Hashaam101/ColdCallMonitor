@@ -27,21 +27,9 @@ from appwrite_service import AppwriteService, init_appwrite
 
 # Sample data for realistic cold calls
 COMPANIES = [
-    {"name": "TechCorp Solutions", "location": "San Francisco, CA", "owner": "Michael Chen"},
-    {"name": "Global Industries Inc", "location": "New York, NY", "owner": "Sarah Johnson"},
-    {"name": "Midwest Manufacturing", "location": "Chicago, IL", "owner": "David Wilson"},
-    {"name": "Pacific Retail Group", "location": "Seattle, WA", "owner": "Emily Davis"},
-    {"name": "Southern Healthcare", "location": "Atlanta, GA", "owner": "Robert Taylor"},
-    {"name": "Mountain View Consulting", "location": "Denver, CO", "owner": "Lisa Anderson"},
-    {"name": "Coastal Logistics", "location": "Miami, FL", "owner": "James Martinez"},
-    {"name": "Prairie Tech Innovations", "location": "Austin, TX", "owner": "Amanda Thompson"},
-    {"name": "Riverdale Financial", "location": "Boston, MA", "owner": "Christopher Lee"},
-    {"name": "Sunrise Energy Co", "location": "Phoenix, AZ", "owner": "Michelle Garcia"},
-    {"name": "Blue Ocean Ventures", "location": "San Diego, CA", "owner": "Daniel Rodriguez"},
-    {"name": "Metro Construction LLC", "location": "Dallas, TX", "owner": "Stephanie White"},
-    {"name": "Harbor Shipping Inc", "location": "Los Angeles, CA", "owner": "Matthew Harris"},
-    {"name": "Valley Software Group", "location": "Portland, OR", "owner": "Nicole Clark"},
-    {"name": "Crown Hospitality", "location": "Las Vegas, NV", "owner": "John Smith"},
+    {"name": "TechCorp Solutions", "location": "San Francisco, CA", "owner": "Michael Chen", "phones": "555-0101,555-0102"},
+    {"name": "Global Industries Inc", "location": "New York, NY", "owner": "Sarah Johnson", "phones": "555-0201"},
+    {"name": "Pacific Retail Group", "location": "Seattle, WA", "owner": "Emily Davis", "phones": "555-0301,555-0302,555-0303"},
 ]
 
 RECIPIENTS = [
@@ -154,6 +142,12 @@ TEAM_MEMBERS = [
     {"name": "David Brown", "email": "david@company.com", "role": "member"},
 ]
 
+NOTES = [
+    {"title": "Sales Strategy", "text": "Focus on enterprise clients this quarter. Key targets: Fortune 500 companies in tech sector. Emphasize ROI and cost savings."},
+    {"title": "Team Meeting Notes", "text": "Weekly sync - Mondays at 10am. Topics: pipeline review, blockers, wins from last week."},
+    {"title": "Best Practices", "text": "Always confirm contact info before calls. Send follow-up email within 24 hours. Update CRM after every call."},
+]
+
 
 def generate_transcript(company: dict, recipient: str, caller: str, outcome: str) -> str:
     """Generate a realistic call transcript."""
@@ -264,6 +258,7 @@ def seed_data():
     coldcalls_collection = service.coldcalls_collection_id
     team_members_collection = service.team_members_collection_id
     alerts_collection = service.alerts_collection_id
+    notes_collection = service.notes_collection_id
 
     # ========================================
     # Seed Team Members
@@ -487,9 +482,41 @@ def seed_data():
         print("  ! Skipping alerts - need team members and calls first")
 
     # ========================================
+    # Seed Notes
+    # ========================================
+    print("\n[5/6] Seeding Notes...")
+    notes_created = 0
+
+    if team_member_ids:
+        for note in NOTES:
+            creator = random.choice(team_member_ids)
+            
+            data = {
+                "title": note["title"],
+                "note_text": note["text"],
+                "created_by": creator,
+                "is_archived": False,
+                "is_deleted": False,
+            }
+
+            try:
+                result = databases.create_row(
+                    database_id=database_id,
+                    table_id=notes_collection,
+                    row_id=ID.unique(),
+                    data=data
+                )
+                notes_created += 1
+                print(f"  + Created note: {note['title']}")
+            except AppwriteException as e:
+                print(f"  ! Failed to create note {note['title']}: {e.message}")
+    else:
+        print("  ! Skipping notes - need team members first")
+
+    # ========================================
     # Summary
     # ========================================
-    print("\n[5/5] Summary")
+    print("\n[6/6] Summary")
     print("=" * 60)
     print("Seeding Complete!")
     print("=" * 60)
@@ -498,6 +525,7 @@ def seed_data():
     print(f"  Cold Calls:    {len(cold_call_ids)}")
     print(f"  Transcripts:   {len(cold_call_ids)}")
     print(f"  Alerts:        {alerts_created}")
+    print(f"  Notes:         {notes_created}")
     print("=" * 60)
 
 

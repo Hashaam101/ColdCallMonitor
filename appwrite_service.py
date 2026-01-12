@@ -26,6 +26,7 @@ COMPANIES_ATTRIBUTES = [
     {"key": "company_name", "type": "string", "size": 100, "required": True},
     {"key": "company_location", "type": "string", "size": 200, "required": False},
     {"key": "google_maps_link", "type": "string", "size": 500, "required": False},
+    {"key": "phone_numbers", "type": "string", "size": 200, "required": False},  # Comma-separated
 ]
 
 # Transcripts table - stores call transcripts (one-to-one with ColdCalls)
@@ -67,6 +68,16 @@ ALERTS_ATTRIBUTES = [
     {"key": "is_dismissed", "type": "boolean", "required": False, "default": False},
 ]
 
+NOTES_ATTRIBUTES = [
+    {"key": "title", "type": "string", "size": 200, "required": True},
+    {"key": "note_text", "type": "string", "size": 10000, "required": True},
+    {"key": "created_by", "type": "string", "size": 36, "required": True},
+    {"key": "last_edited_by", "type": "string", "size": 36, "required": False},
+    {"key": "is_archived", "type": "boolean", "required": False, "default": False},
+    {"key": "is_deleted", "type": "boolean", "required": False, "default": False},
+    {"key": "deleted_at", "type": "string", "size": 30, "required": False},  # ISO datetime
+]
+
 class AppwriteService:
     """Service for interacting with Appwrite database."""
 
@@ -80,6 +91,7 @@ class AppwriteService:
         self.transcripts_collection_id = os.getenv("APPWRITE_TRANSCRIPTS_COLLECTION_ID", "transcripts")
         self.team_members_collection_id = os.getenv("APPWRITE_TEAM_MEMBERS_COLLECTION_ID", "team_members")
         self.alerts_collection_id = os.getenv("APPWRITE_ALERTS_COLLECTION_ID", "alerts")
+        self.notes_collection_id = os.getenv("APPWRITE_NOTES_COLLECTION_ID", "notes")
 
         if not self.project_id or not self.api_key:
             raise ValueError(
@@ -117,6 +129,7 @@ class AppwriteService:
             self._setup_collection(self.coldcalls_collection_id, "ColdCalls", COLDCALLS_ATTRIBUTES)
             self._setup_collection(self.team_members_collection_id, "TeamMembers", TEAM_MEMBERS_ATTRIBUTES)
             self._setup_collection(self.alerts_collection_id, "Alerts", ALERTS_ATTRIBUTES)
+            self._setup_collection(self.notes_collection_id, "Notes", NOTES_ATTRIBUTES)
 
             return True
 
@@ -399,6 +412,268 @@ class AppwriteService:
     def update_transcript(self, document_id: str, updates: dict) -> Optional[dict]:
         """Deprecated: Use update_cold_call instead."""
         return self.update_cold_call(document_id, updates)
+
+    # ====================
+    # Notes CRUD Methods
+    # ====================
+
+    def save_note(self, note_data: dict) -> Optional[str]:
+        """
+        Creates a new note.
+        
+        Args:
+            note_data: Dict with title, note_text, created_by (required), 
+                       and optionally last_edited_by
+            
+        Returns:
+            Note document ID if successful, None otherwise
+        """
+        try:
+            valid_keys = {attr["key"] for attr in NOTES_ATTRIBUTES}
+            data = {k: v for k, v in note_data.items() if k in valid_keys and v is not None}
+            
+            # Set defaults for boolean fields
+            if "is_archived" not in data:
+                data["is_archived"] = False
+            if "is_deleted" not in data:
+                data["is_deleted"] = False
+            
+            result = self.databases.create_row(
+                database_id=self.database_id,
+                table_id=self.notes_collection_id,
+                row_id=ID.unique(),
+                data=data
+            )
+            logger.info(f"Saved note: {result['$id']}")
+            return result["$id"]
+        except AppwriteException as e:
+            logger.error(f"Failed to save note: {e.message}")
+            return None
+
+    def get_note(self, note_id: str) -> Optional[dict]:
+        """Retrieves a note by document ID."""
+        try:
+            return self.databases.get_row(
+                database_id=self.database_id,
+                table_id=self.notes_collection_id,
+                row_id=note_id
+            )
+        except AppwriteException as e:
+            logger.error(f"Failed to get note: {e.message}")
+            return None
+
+    def update_note(self, note_id: str, updates: dict) -> Optional[dict]:
+        """
+        Updates a note by document ID.
+        
+        Args:
+            note_id: The note document ID
+            updates: Dict with fields to update (title, note_text, last_edited_by)
+            
+        Returns:
+            Updated note document if successful, None otherwise
+        """
+        try:
+            valid_keys = {attr["key"] for attr in NOTES_ATTRIBUTES}
+            filtered_updates = {k: v for k, v in updates.items() if k in valid_keys}
+            
+            result = self.databases.update_row(
+                database_id=self.database_id,
+                table_id=self.notes_collection_id,
+                row_id=note_id,
+                data=filtered_updates
+            )
+            logger.info(f"Updated note: {note_id}")
+            return result
+        except AppwriteException as e:
+            logger.error(f"Failed to update note: {e.message}")
+            return None
+
+    def delete_note(self, note_id: str) -> Optional[dict]:
+        """
+        Soft deletes a note by moving it to recycle bin.
+        Sets is_deleted=True and records deleted_at timestamp.
+        
+        Args:
+            note_id: The note document ID
+            
+        Returns:
+            Updated note document if successful, None otherwise
+        """
+        from datetime import datetime
+        try:
+            result = self.databases.update_row(
+                database_id=self.database_id,
+                table_id=self.notes_collection_id,
+                row_id=note_id,
+                data={
+                    "is_deleted": True,
+                    "deleted_at": datetime.now().isoformat()
+                }
+            )
+            logger.info(f"Moved note to recycle bin: {note_id}")
+            return result
+        except AppwriteException as e:
+            logger.error(f"Failed to delete note: {e.message}")
+            return None
+
+    def restore_note(self, note_id: str) -> Optional[dict]:
+        """
+        Restores a note from the recycle bin.
+        Sets is_deleted=False and clears deleted_at.
+        
+        Args:
+            note_id: The note document ID
+            
+        Returns:
+            Updated note document if successful, None otherwise
+        """
+        try:
+            result = self.databases.update_row(
+                database_id=self.database_id,
+                table_id=self.notes_collection_id,
+                row_id=note_id,
+                data={
+                    "is_deleted": False,
+                    "deleted_at": None
+                }
+            )
+            logger.info(f"Restored note from recycle bin: {note_id}")
+            return result
+        except AppwriteException as e:
+            logger.error(f"Failed to restore note: {e.message}")
+            return None
+
+    def permanently_delete_note(self, note_id: str) -> bool:
+        """
+        Permanently deletes a note from the database.
+        This cannot be undone.
+        
+        Args:
+            note_id: The note document ID
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            self.databases.delete_row(
+                database_id=self.database_id,
+                table_id=self.notes_collection_id,
+                row_id=note_id
+            )
+            logger.info(f"Permanently deleted note: {note_id}")
+            return True
+        except AppwriteException as e:
+            logger.error(f"Failed to permanently delete note: {e.message}")
+            return False
+
+    def list_notes(self, include_archived: bool = False, include_deleted: bool = False) -> list[dict]:
+        """
+        Lists notes with optional filters.
+        
+        Args:
+            include_archived: If True, includes archived notes
+            include_deleted: If True, includes deleted notes (recycle bin)
+            
+        Returns:
+            List of note documents
+        """
+        try:
+            from appwrite.query import Query
+            queries = []
+            
+            if not include_deleted:
+                queries.append(Query.equal("is_deleted", False))
+            
+            if not include_archived:
+                queries.append(Query.equal("is_archived", False))
+            
+            result = self.databases.list_rows(
+                database_id=self.database_id,
+                table_id=self.notes_collection_id,
+                queries=queries if queries else None
+            )
+            return result.get("documents", result.get("rows", []))
+        except AppwriteException as e:
+            logger.error(f"Failed to list notes: {e.message}")
+            return []
+
+    def list_archived_notes(self) -> list[dict]:
+        """Lists only archived notes (not deleted)."""
+        try:
+            from appwrite.query import Query
+            result = self.databases.list_rows(
+                database_id=self.database_id,
+                table_id=self.notes_collection_id,
+                queries=[
+                    Query.equal("is_archived", True),
+                    Query.equal("is_deleted", False)
+                ]
+            )
+            return result.get("documents", result.get("rows", []))
+        except AppwriteException as e:
+            logger.error(f"Failed to list archived notes: {e.message}")
+            return []
+
+    def list_deleted_notes(self) -> list[dict]:
+        """Lists only deleted notes (recycle bin)."""
+        try:
+            from appwrite.query import Query
+            result = self.databases.list_rows(
+                database_id=self.database_id,
+                table_id=self.notes_collection_id,
+                queries=[Query.equal("is_deleted", True)]
+            )
+            return result.get("documents", result.get("rows", []))
+        except AppwriteException as e:
+            logger.error(f"Failed to list deleted notes: {e.message}")
+            return []
+
+    def archive_note(self, note_id: str) -> Optional[dict]:
+        """
+        Archives a note (removes from main list but keeps accessible).
+        
+        Args:
+            note_id: The note document ID
+            
+        Returns:
+            Updated note document if successful, None otherwise
+        """
+        try:
+            result = self.databases.update_row(
+                database_id=self.database_id,
+                table_id=self.notes_collection_id,
+                row_id=note_id,
+                data={"is_archived": True}
+            )
+            logger.info(f"Archived note: {note_id}")
+            return result
+        except AppwriteException as e:
+            logger.error(f"Failed to archive note: {e.message}")
+            return None
+
+    def unarchive_note(self, note_id: str) -> Optional[dict]:
+        """
+        Unarchives a note (moves back to main list).
+        
+        Args:
+            note_id: The note document ID
+            
+        Returns:
+            Updated note document if successful, None otherwise
+        """
+        try:
+            result = self.databases.update_row(
+                database_id=self.database_id,
+                table_id=self.notes_collection_id,
+                row_id=note_id,
+                data={"is_archived": False}
+            )
+            logger.info(f"Unarchived note: {note_id}")
+            return result
+        except AppwriteException as e:
+            logger.error(f"Failed to unarchive note: {e.message}")
+            return None
 
 
 def init_appwrite() -> Optional[AppwriteService]:

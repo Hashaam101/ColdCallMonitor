@@ -34,7 +34,7 @@ except ImportError:
 SAMPLE_RATE = 44100
 CHUNK_SIZE = 1024
 CONFIG_FILE = Path(__file__).parent / "config.json"
-DEFAULT_HOTKEY = "ctrl+shift+r"
+DEFAULT_HOTKEY = "alt+r"
 DEFAULT_SAVE_DIR = str(Path(__file__).parent / "recordings")
 
 
@@ -265,6 +265,99 @@ class TroubleshootDialog(tk.Toplevel):
             messagebox.showerror("Error", "Could not open Privacy Settings.")
 
 
+class SaveApproveDialog(tk.Toplevel):
+    """Dialog for saving or approving a recording with optional phone number."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Save Recording")
+        self.geometry("350x200")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+
+        # Result: "approve", "save", or None (cancelled)
+        self.result = None
+        self.phone_number = ""
+
+        # Center on parent
+        self.update_idletasks()
+        x = parent.winfo_x() + (parent.winfo_width() - 350) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - 200) // 2
+        self.geometry(f"+{x}+{y}")
+
+        # Main frame
+        main_frame = ttk.Frame(self, padding=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            main_frame, text="Save Recording",
+            font=("Arial", 14, "bold")
+        ).pack(pady=(0, 15))
+
+        # Phone number input
+        phone_frame = ttk.Frame(main_frame)
+        phone_frame.pack(fill=tk.X, pady=(0, 15))
+
+        ttk.Label(phone_frame, text="Phone Number (optional):").pack(anchor=tk.W)
+        self.phone_var = tk.StringVar()
+        self.phone_entry = ttk.Entry(phone_frame, textvariable=self.phone_var, width=35)
+        self.phone_entry.pack(fill=tk.X, pady=(5, 0))
+        self.phone_entry.focus()
+
+        # Info label
+        ttk.Label(
+            main_frame,
+            text="Approve (Y) = Save to Approved folder\nSave (N) = Save to regular folder",
+            font=("Arial", 9),
+            foreground="gray"
+        ).pack(pady=(0, 15))
+
+        # Buttons frame
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X)
+
+        self.approve_btn = ttk.Button(
+            btn_frame, text="Yes - Approve (Y)",
+            command=self.approve,
+            style="Accent.TButton"
+        )
+        self.approve_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
+
+        self.save_btn = ttk.Button(
+            btn_frame, text="No - Save (N)",
+            command=self.save
+        )
+        self.save_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(5, 0))
+
+        # Bind keyboard shortcuts
+        self.bind("<y>", lambda e: self.approve())
+        self.bind("<Y>", lambda e: self.approve())
+        self.bind("<n>", lambda e: self.save())
+        self.bind("<N>", lambda e: self.save())
+        self.bind("<Escape>", lambda e: self.cancel())
+        self.bind("<Return>", lambda e: self.approve())
+
+        # Handle window close
+        self.protocol("WM_DELETE_WINDOW", self.cancel)
+
+    def approve(self):
+        """Approve and save to Approved folder."""
+        self.result = "approve"
+        self.phone_number = self.phone_var.get().strip()
+        self.destroy()
+
+    def save(self):
+        """Save to regular recordings folder."""
+        self.result = "save"
+        self.phone_number = self.phone_var.get().strip()
+        self.destroy()
+
+    def cancel(self):
+        """Cancel without saving."""
+        self.result = None
+        self.destroy()
+
 class RecordingOverlay(tk.Toplevel):
     """Small always-on-top overlay showing recording status with audio levels."""
 
@@ -272,13 +365,14 @@ class RecordingOverlay(tk.Toplevel):
         super().__init__(parent)
         self.parent = parent
         self.recorder = recorder
+        self.phone_number = ""  # Store phone number entered during recording
 
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         self.attributes("-alpha", 0.95)
 
         screen_width = self.winfo_screenwidth()
-        self.geometry(f"220x90+{screen_width - 240}+20")
+        self.geometry(f"220x115+{screen_width - 240}+20")  # Increased height for button
         self.configure(bg="#1a1a2e")
 
         # Main container
@@ -343,6 +437,16 @@ class RecordingOverlay(tk.Toplevel):
         self.desk_canvas.pack(side=tk.LEFT, padx=(5, 0))
         self.desk_bar = self.desk_canvas.create_rectangle(0, 0, 0, 12, fill="#00d4ff", width=0)
 
+        # Add Phone button
+        self.phone_btn = tk.Button(
+            main_frame, text="+ Add Phone",
+            font=("Arial", 8), fg="white", bg="#2d2d44",
+            activebackground="#3d3d55", activeforeground="white",
+            relief=tk.FLAT, cursor="hand2",
+            command=self._add_phone
+        )
+        self.phone_btn.pack(fill=tk.X, pady=(6, 0))
+
         self.is_blinking = True
         self.is_running = True
         self.start_time = None
@@ -351,6 +455,22 @@ class RecordingOverlay(tk.Toplevel):
 
         self.blink()
         self.update_levels()
+
+    def _add_phone(self):
+        """Prompt user to enter phone number during recording."""
+        from tkinter import simpledialog
+        phone = simpledialog.askstring(
+            "Phone Number",
+            "Enter phone number (optional):",
+            parent=self,
+            initialvalue=self.phone_number
+        )
+        if phone is not None:
+            self.phone_number = phone.strip()
+            if self.phone_number:
+                self.phone_btn.config(text=f"Phone: {self.phone_number[:15]}...")
+            else:
+                self.phone_btn.config(text="+ Add Phone")
 
     def blink(self):
         if not self.is_blinking:
@@ -934,14 +1054,16 @@ class RecorderApp:
             return
 
         try:
-            if self.hotkey_registered:
-                keyboard.unhook_all_hotkeys()
+            # Always unregister first before re-registering
+            keyboard.unhook_all_hotkeys()
+            self.hotkey_registered = False
 
             keyboard.add_hotkey(self.hotkey, self._on_hotkey, suppress=False)
             self.hotkey_registered = True
             print(f"Hotkey registered: {self.hotkey}")
         except Exception as e:
             print(f"Failed to register hotkey: {e}")
+            self.hotkey_registered = False
 
     def _unregister_hotkey(self):
         """Unregister the global hotkey."""
@@ -1052,12 +1174,15 @@ class RecorderApp:
             self._set_state_recursive(child, state)
 
     def stop_recording(self):
-        audio = self.recorder.stop()
-        self.is_recording = False
-
+        # Get phone number from overlay before stopping
+        phone_number = ""
         if self.overlay:
+            phone_number = getattr(self.overlay, 'phone_number', "")
             self.overlay.stop()
             self.overlay = None
+
+        audio = self.recorder.stop()
+        self.is_recording = False
 
         self.record_btn.config(text="Start Recording")
         self._set_controls_enabled(True)
@@ -1069,61 +1194,56 @@ class RecorderApp:
             self.status_label.config(text="Ready", foreground="gray")
             return
 
+        # Show Save/Approve dialog
+        dialog = SaveApproveDialog(self.root)
+        # Pre-fill phone number if entered during recording
+        if phone_number:
+            dialog.phone_var.set(phone_number)
+            dialog.phone_entry.icursor(tk.END)
+        self.root.wait_window(dialog)
+
+        if dialog.result is None:
+            # User cancelled
+            self.status_label.config(text="Recording discarded", foreground="gray")
+            return
+
+        # Get phone number from dialog (may have been updated)
+        phone_number = dialog.phone_number
+
+        # Build filename with phone number if provided
         timestamp = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
-        save_mode = self.config.get("save_mode", "ask")
-
-        if save_mode == "auto" or save_mode == "default":
-            # Determine save directory based on mode
-            if save_mode == "default":
-                # Use default recordings folder (child of script directory)
-                save_dir = Path(__file__).parent / "recordings"
-            else:
-                # Use custom configured folder
-                save_dir = Path(self.config.get("save_dir", DEFAULT_SAVE_DIR))
-
-            # Create directory if it doesn't exist
-            try:
-                save_dir.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                messagebox.showerror("Error", f"Could not create folder:\n{save_dir}\n\n{e}")
-                self.status_label.config(text="Save failed", foreground="red")
-                return
-
-            filepath = save_dir / f"recording_{timestamp}.wav"
-
-            try:
-                self.recorder.save(str(filepath), audio)
-                self.status_label.config(
-                    text=f"Saved: {filepath.name}",
-                    foreground="green"
-                )
-                # Show brief notification instead of dialog
-                print(f"Auto-saved: {filepath}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Save failed: {e}")
-                self.status_label.config(text="Save failed", foreground="red")
+        if phone_number:
+            # Sanitize phone number for filename (remove invalid chars)
+            safe_phone = "".join(c for c in phone_number if c.isalnum() or c in "-_")
+            filename = f"recording_{timestamp}_{safe_phone}.wav"
         else:
-            # Ask user where to save
-            filepath = filedialog.asksaveasfilename(
-                defaultextension=".wav",
-                filetypes=[("WAV files", "*.wav")],
-                initialfile=f"recording_{timestamp}.wav",
-                title="Save Recording"
-            )
+            filename = f"recording_{timestamp}.wav"
 
-            if filepath:
-                try:
-                    self.recorder.save(filepath, audio)
-                    self.status_label.config(
-                        text=f"Saved: {Path(filepath).name}",
-                        foreground="green"
-                    )
-                    messagebox.showinfo("Success", f"Saved to:\n{filepath}")
-                except Exception as e:
-                    messagebox.showerror("Error", f"Save failed: {e}")
-                    self.status_label.config(text="Save failed", foreground="red")
-            else:
-                self.status_label.config(text="Recording discarded", foreground="gray")
+        # Determine save directory based on approve/save choice
+        base_dir = Path(__file__).parent / "recordings"
+        if dialog.result == "approve":
+            save_dir = base_dir / "Approved"
+        else:
+            save_dir = base_dir
+
+        # Create directory if it doesn't exist
+        try:
+            save_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not create folder:\n{save_dir}\n\n{e}")
+            self.status_label.config(text="Save failed", foreground="red")
+            return
+
+        filepath = save_dir / filename
+
+        try:
+            self.recorder.save(str(filepath), audio)
+            status_text = f"{'Approved' if dialog.result == 'approve' else 'Saved'}: {filepath.name}"
+            self.status_label.config(text=status_text, foreground="green")
+            print(f"Recording saved: {filepath}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Save failed: {e}")
+            self.status_label.config(text="Save failed", foreground="red")
 
     def run(self):
         self.root.mainloop()

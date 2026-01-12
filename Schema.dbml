@@ -8,6 +8,7 @@ Table companies {
   company_name varchar [not null]
   company_location varchar
   google_maps_link varchar
+  phone_numbers varchar [note: 'Comma-separated phone numbers']
 
   // System fields
   createdAt datetime [default: `now()`, note: 'Appwrite: $createdAt']
@@ -71,6 +72,21 @@ Table alerts {
   alert_time datetime [note: 'null = instant alert, otherwise scheduled']
   message text
   is_dismissed boolean [default: false]
+
+  // System fields
+  createdAt datetime [default: `now()`, note: 'Appwrite: $createdAt']
+  updatedAt datetime [default: `now()`, note: 'Appwrite: $updatedAt']
+}
+
+Table notes {
+  id varchar [pk, note: 'Appwrite: $id']
+  title varchar [not null]
+  note_text text [not null]
+  created_by varchar [ref: > team_members.id, not null]
+  last_edited_by varchar [ref: > team_members.id]
+  is_archived boolean [default: false]
+  is_deleted boolean [default: false, note: 'Recycle bin flag']
+  deleted_at datetime [note: 'When moved to recycle bin']
 
   // System fields
   createdAt datetime [default: `now()`, note: 'Appwrite: $createdAt']
