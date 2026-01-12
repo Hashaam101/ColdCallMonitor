@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { Header } from '@/components/layout/Header';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { DataTable } from '@/components/data-table/DataTable';
-import { useRealtime, useUnreadAlertCount } from '@/hooks';
+import { useUnreadAlertCount } from '@/hooks';
 import {
     Dialog,
     DialogContent,
@@ -22,9 +22,6 @@ export default function DashboardPage() {
     const unreadAlerts = useUnreadAlertCount();
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [showShortcuts, setShowShortcuts] = useState(false);
-
-    // Set up real-time subscriptions
-    useRealtime();
 
     // Keyboard shortcuts
     useEffect(() => {

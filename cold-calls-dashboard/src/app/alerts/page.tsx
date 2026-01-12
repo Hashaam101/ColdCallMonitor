@@ -6,7 +6,6 @@ import { useAuth } from '@/lib/auth';
 import { Header } from '@/components/layout/Header';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { useAllAlerts, useDismissAlert, useDeleteAlert, useUnreadAlertCount } from '@/hooks';
-import { useRealtime } from '@/hooks';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -159,9 +158,6 @@ export default function AlertsPage() {
     const { data: alertsData, isLoading } = useAllAlerts();
     const dismissAlert = useDismissAlert();
     const deleteAlert = useDeleteAlert();
-
-    // Set up real-time subscriptions
-    useRealtime();
 
     // Redirect to login if not authenticated
     useEffect(() => {

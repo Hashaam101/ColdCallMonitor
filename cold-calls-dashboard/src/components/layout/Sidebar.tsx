@@ -4,7 +4,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
+import { cacheService } from '@/lib/cache-service';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -17,7 +19,9 @@ import {
     ChevronLeft,
     ChevronRight,
     Calendar,
+    RefreshCw,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 
 interface NavItem {
@@ -37,11 +41,37 @@ interface SidebarProps {
 export function Sidebar({ unreadAlerts = 0, collapsed = false, onCollapsedChange }: SidebarProps) {
     const pathname = usePathname();
     const [isCollapsed, setIsCollapsed] = useState(collapsed);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const queryClient = useQueryClient();
 
     const handleToggle = () => {
         const newState = !isCollapsed;
         setIsCollapsed(newState);
         onCollapsedChange?.(newState);
+    };
+
+    const handleManualSync = async () => {
+        try {
+            setIsSyncing(true);
+            
+            // Clear all caches
+            cacheService.clear();
+            cacheService.invalidatePattern('*');
+            
+            // Invalidate all React Query caches
+            await queryClient.invalidateQueries();
+            
+            toast.success('Data synced with database', {
+                description: 'All data has been refreshed',
+            });
+        } catch (error) {
+            console.error('Sync error:', error);
+            toast.error('Sync failed', {
+                description: 'Could not sync with database',
+            });
+        } finally {
+            setIsSyncing(false);
+        }
     };
 
     const navItems: NavItem[] = [
@@ -190,6 +220,35 @@ export function Sidebar({ unreadAlerts = 0, collapsed = false, onCollapsedChange
 
                 {/* Bottom Navigation */}
                 <div className="border-t border-border px-3 py-3 space-y-1">
+                    {/* Manual Sync Button */}
+                    <Tooltip delayDuration={0}>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleManualSync}
+                                disabled={isSyncing}
+                                className={cn(
+                                    'w-full justify-start gap-3',
+                                    isCollapsed && 'justify-center px-2'
+                                )}
+                            >
+                                <RefreshCw className={cn(
+                                    'h-5 w-5',
+                                    isSyncing && 'animate-spin'
+                                )} />
+                                {!isCollapsed && (
+                                    <span>{isSyncing ? 'Syncing...' : 'Sync Data'}</span>
+                                )}
+                            </Button>
+                        </TooltipTrigger>
+                        {isCollapsed && (
+                            <TooltipContent side="right" className="flex items-center gap-2">
+                                Sync with database
+                            </TooltipContent>
+                        )}
+                    </Tooltip>
+
                     {bottomNavItems.map((item) => (
                         <NavLink key={item.href} item={item} />
                     ))}

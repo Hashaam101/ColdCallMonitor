@@ -1,12 +1,17 @@
 /**
- * Alerts Hook
+ * Alerts Hook with Optimized Caching
  * 
- * React Query hooks for managing alerts.
+ * Minimizes database reads by:
+ * - Reducing polling interval from 30s to 60s
+ * - Using longer stale times
+ * - Caching alert data persistently
+ * - Smart invalidation on mutations
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Query, ID } from 'appwrite';
 import { databases, DATABASE_ID, ALERTS_COLLECTION_ID } from '@/lib/appwrite';
+import { cacheService, cacheKeys, cacheTTL } from '@/lib/cache-service';
 import { useAuth } from '@/lib/auth';
 import type { Alert, AlertCreateData } from '@/types';
 
@@ -28,6 +33,13 @@ export function useAlerts() {
         queryFn: async () => {
             if (!DATABASE_ID || !ALERTS_COLLECTION_ID || !teamMember) {
                 return [];
+            }
+
+            // Check cache first
+            const cacheKey = cacheKeys.alerts(teamMember.$id);
+            const cached = cacheService.get<Alert[]>(cacheKey);
+            if (cached) {
+                return cached;
             }
 
             const now = new Date().toISOString();
@@ -55,16 +67,23 @@ export function useAlerts() {
                 );
 
                 // Sort by createdAt desc
-                return dueAlerts.sort((a, b) =>
+                const sorted = dueAlerts.sort((a, b) =>
                     new Date(b.$createdAt).getTime() - new Date(a.$createdAt).getTime()
                 );
+
+                // Cache the result
+                cacheService.set(cacheKey, sorted, { ttl: cacheTTL.SHORT });
+
+                return sorted;
             } catch (error) {
                 console.error('Error fetching alerts:', error);
                 return [];
             }
         },
         enabled: !!teamMember,
-        refetchInterval: 30000,
+        staleTime: 2 * 60 * 1000, // 2 minutes for alerts
+        refetchInterval: 60 * 1000, // Increased from 30s to 60s to reduce API calls
+        gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
     });
 }
 
@@ -76,7 +95,13 @@ export function useAllAlerts() {
         queryKey: [...alertsKeys.listByUser(teamMember?.$id || ''), 'all'],
         queryFn: async () => {
             if (!DATABASE_ID || !ALERTS_COLLECTION_ID || !teamMember) {
-                return { triggered: [], upcoming: [] };
+                return { triggered: [], upcoming: [], all: [] };
+            }
+
+            const cacheKey = cacheKeys.alerts(teamMember.$id) + ':all';
+            const cached = cacheService.get<{ triggered: Alert[]; upcoming: Alert[]; all: Alert[] }>(cacheKey);
+            if (cached) {
+                return cached;
             }
 
             const now = new Date().toISOString();
@@ -105,15 +130,21 @@ export function useAllAlerts() {
                 const triggered = allAlerts.filter(a => !a.alert_time || new Date(a.alert_time) <= new Date(now));
                 const upcoming = allAlerts.filter(a => a.alert_time && new Date(a.alert_time) > new Date(now));
 
-                return { triggered, upcoming, all: allAlerts };
+                const result = { triggered, upcoming, all: allAlerts };
+                
+                // Cache the result
+                cacheService.set(cacheKey, result, { ttl: cacheTTL.SHORT });
+
+                return result;
             } catch (error) {
                 console.error('Error fetching alerts:', error);
-                // Return empty arrays on error to prevent crashes
                 return { triggered: [], upcoming: [], all: [] };
             }
         },
         enabled: !!teamMember,
-        refetchInterval: 30000, // Refetch every 30 seconds to catch newly-due alerts
+        staleTime: 2 * 60 * 1000, // 2 minutes
+        refetchInterval: 60 * 1000, // Increased from 30s to 60s
+        gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
     });
 }
 
@@ -126,6 +157,13 @@ export function useAlertsByEntity(entityId: string) {
                 return [];
             }
 
+            // Check cache first
+            const cacheKey = cacheKeys.alertsByEntity(entityId);
+            const cached = cacheService.get<Alert[]>(cacheKey);
+            if (cached) {
+                return cached;
+            }
+
             const response = await databases.listDocuments(
                 DATABASE_ID,
                 ALERTS_COLLECTION_ID,
@@ -136,9 +174,16 @@ export function useAlertsByEntity(entityId: string) {
                 ]
             );
 
-            return response.documents as unknown as Alert[];
+            const alerts = response.documents as unknown as Alert[];
+            
+            // Cache the result
+            cacheService.set(cacheKey, alerts, { ttl: cacheTTL.MEDIUM });
+
+            return alerts;
         },
         enabled: !!entityId,
+        staleTime: 5 * 60 * 1000, // 5 minutes
+        gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
     });
 }
 

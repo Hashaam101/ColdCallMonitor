@@ -1,69 +1,34 @@
 /**
- * Real-time Subscription Hook
+ * Real-time Subscription Hook (Disabled)
  * 
- * Subscribes to Appwrite real-time changes and invalidates React Query cache.
+ * Real-time features have been disabled to optimize cache and reduce bandwidth.
+ * Users can now manually sync data using the "Sync Data" button in the sidebar.
+ * 
+ * This hook is kept for backwards compatibility but no longer subscribes to changes.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { client, DATABASE_ID, COLDCALLS_COLLECTION_ID, ALERTS_COLLECTION_ID } from '@/lib/appwrite';
+import { cacheService } from '@/lib/cache-service';
 import { coldCallsKeys } from './useColdCalls';
 import { alertsKeys } from './useAlerts';
 
-// Subscribe to cold calls collection changes
+// Disabled: Real-time cold calls subscription
+// Use manual sync button instead for optimization
 export function useRealtimeColdCalls() {
-    const queryClient = useQueryClient();
-
-    useEffect(() => {
-        if (!DATABASE_ID || !COLDCALLS_COLLECTION_ID) {
-            console.warn('Database configuration missing for real-time subscriptions');
-            return;
-        }
-
-        const channel = `databases.${DATABASE_ID}.collections.${COLDCALLS_COLLECTION_ID}.documents`;
-
-        const unsubscribe = client.subscribe(channel, (response) => {
-            // Invalidate queries on any change
-            const events = response.events;
-
-            if (events.some(e => e.includes('.create') || e.includes('.update') || e.includes('.delete'))) {
-                queryClient.invalidateQueries({ queryKey: coldCallsKeys.all });
-            }
-        });
-
-        return () => {
-            unsubscribe();
-        };
-    }, [queryClient]);
+    // No-op - real-time disabled for optimization
 }
 
-// Subscribe to alerts collection changes
+// Disabled: Real-time alerts subscription
+// Use manual sync button instead for optimization
 export function useRealtimeAlerts() {
-    const queryClient = useQueryClient();
-
-    useEffect(() => {
-        if (!DATABASE_ID || !ALERTS_COLLECTION_ID) {
-            return;
-        }
-
-        const channel = `databases.${DATABASE_ID}.collections.${ALERTS_COLLECTION_ID}.documents`;
-
-        const unsubscribe = client.subscribe(channel, (response) => {
-            const events = response.events;
-
-            if (events.some(e => e.includes('.create') || e.includes('.update') || e.includes('.delete'))) {
-                queryClient.invalidateQueries({ queryKey: alertsKeys.all });
-            }
-        });
-
-        return () => {
-            unsubscribe();
-        };
-    }, [queryClient]);
+    // No-op - real-time disabled for optimization
 }
 
-// Combined hook for all real-time subscriptions
+// Disabled: Combined real-time subscriptions
+// Use manual sync button in sidebar instead for optimization
 export function useRealtime() {
-    useRealtimeColdCalls();
-    useRealtimeAlerts();
+    // No-op - real-time features disabled for cache optimization
+    // Users can manually sync using the "Sync Data" button in the sidebar
 }

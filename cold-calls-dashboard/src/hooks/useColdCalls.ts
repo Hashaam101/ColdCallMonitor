@@ -1,8 +1,14 @@
 /**
- * Cold Calls CRUD Hooks
+ * Cold Calls CRUD Hooks with Optimized Caching
  * 
  * React Query hooks for fetching, updating, and deleting cold calls.
  * Handles normalized schema: companies and transcripts in separate tables.
+ * 
+ * Optimizations:
+ * - Caches cold call lists with filters
+ * - Batch fetches related company and transcript data
+ * - Reduces API calls with longer stale times
+ * - Smart cache invalidation on mutations
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -14,6 +20,7 @@ import {
     COMPANIES_COLLECTION_ID,
     TRANSCRIPTS_COLLECTION_ID
 } from '@/lib/appwrite';
+import { cacheService, cacheKeys, cacheTTL } from '@/lib/cache-service';
 import type { ColdCall, ColdCallFilters, ColdCallUpdateData, SortConfig, Company, Transcript } from '@/types';
 
 // Query key factory
@@ -77,6 +84,7 @@ function buildQueries(filters: ColdCallFilters, sort?: SortConfig): string[] {
 /**
  * Enriches cold calls with company and transcript data from normalized tables.
  * Flattens company fields for backwards-compatible UI rendering.
+ * Uses cache to minimize company fetches.
  */
 async function enrichColdCalls(calls: ColdCall[]): Promise<ColdCall[]> {
     if (calls.length === 0) return calls;
@@ -85,11 +93,22 @@ async function enrichColdCalls(calls: ColdCall[]): Promise<ColdCall[]> {
     const companyIds = [...new Set(calls.map(c => c.company_id).filter(Boolean))] as string[];
     const callIds = calls.map(c => c.$id);
 
+    // Check cache for companies first
+    const companiesCache = new Map<string, Company>();
+    const companiesNotCached = companyIds.filter(id => {
+        const cached = cacheService.get<Company>(cacheKeys.company(id));
+        if (cached) {
+            companiesCache.set(id, cached);
+            return false;
+        }
+        return true;
+    });
+
     // Fetch companies and transcripts in parallel
     const [companiesResult, transcriptsResult] = await Promise.all([
-        companyIds.length > 0
+        companiesNotCached.length > 0
             ? databases.listDocuments(DATABASE_ID, COMPANIES_COLLECTION_ID, [
-                Query.equal('$id', companyIds)
+                Query.equal('$id', companiesNotCached)
             ])
             : Promise.resolve({ documents: [] }),
         callIds.length > 0
@@ -99,12 +118,18 @@ async function enrichColdCalls(calls: ColdCall[]): Promise<ColdCall[]> {
             : Promise.resolve({ documents: [] })
     ]);
 
-    // Build lookup maps
-    const companiesMap = new Map<string, Company>();
-    (companiesResult.documents as unknown as Company[]).forEach(c => companiesMap.set(c.$id, c));
+    // Build company map, combining cached and freshly fetched
+    const companiesMap = new Map<string, Company>(companiesCache);
+    (companiesResult.documents as unknown as Company[]).forEach(c => {
+        companiesMap.set(c.$id, c);
+        // Cache individual companies for future use
+        cacheService.set(cacheKeys.company(c.$id), c, { ttl: cacheTTL.LONG });
+    });
 
     const transcriptsMap = new Map<string, string>();
-    (transcriptsResult.documents as unknown as Transcript[]).forEach(t => transcriptsMap.set(t.call_id, t.transcript));
+    (transcriptsResult.documents as unknown as Transcript[]).forEach(t => 
+        transcriptsMap.set(t.call_id, t.transcript)
+    );
 
     // Enrich calls with flattened company data and transcripts
     return calls.map(call => {
@@ -131,6 +156,13 @@ export function useColdCalls(filters: ColdCallFilters = {}, sort?: SortConfig) {
                 throw new Error('Database configuration missing');
             }
 
+            // Check cache first
+            const cacheKey = JSON.stringify({ filters, sort });
+            const cached = cacheService.get<ColdCall[]>('coldcalls:list:' + cacheKey.substring(0, 50));
+            if (cached) {
+                return cached;
+            }
+
             const queries = buildQueries(filters, sort);
             const response = await databases.listDocuments(
                 DATABASE_ID,
@@ -141,8 +173,15 @@ export function useColdCalls(filters: ColdCallFilters = {}, sort?: SortConfig) {
             const calls = response.documents as unknown as ColdCall[];
 
             // Enrich with company and transcript data
-            return enrichColdCalls(calls);
+            const enriched = await enrichColdCalls(calls);
+
+            // Cache the result
+            cacheService.set('coldcalls:list:' + cacheKey.substring(0, 50), enriched, { ttl: cacheTTL.MEDIUM });
+
+            return enriched;
         },
+        staleTime: 5 * 60 * 1000, // 5 minutes - cold calls change moderately
+        gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
     });
 }
 
@@ -156,6 +195,13 @@ export function useColdCall(id: string) {
                 throw new Error('Database configuration missing');
             }
 
+            // Check cache first
+            const cacheKey = cacheKeys.coldCall(id);
+            const cached = cacheService.get<ColdCall>(cacheKey);
+            if (cached) {
+                return cached;
+            }
+
             const document = await databases.getDocument(
                 DATABASE_ID,
                 COLDCALLS_COLLECTION_ID,
@@ -166,9 +212,16 @@ export function useColdCall(id: string) {
 
             // Enrich with company and transcript data
             const enriched = await enrichColdCalls([call]);
-            return enriched[0];
+            const result = enriched[0];
+
+            // Cache the result
+            cacheService.set(cacheKey, result, { ttl: cacheTTL.MEDIUM });
+
+            return result;
         },
         enabled: !!id,
+        staleTime: 5 * 60 * 1000, // 5 minutes
+        gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
     });
 }
 
@@ -197,6 +250,9 @@ export function useUpdateColdCall() {
             queryClient.setQueryData(coldCallsKeys.detail(data.$id), data);
             // Invalidate list queries to refetch
             queryClient.invalidateQueries({ queryKey: coldCallsKeys.lists() });
+            // Invalidate cache service
+            cacheService.invalidate(cacheKeys.coldCall(data.$id));
+            cacheService.invalidatePattern('coldcalls:list:*');
         },
     });
 }
@@ -214,8 +270,11 @@ export function useDeleteColdCall() {
             await databases.deleteDocument(DATABASE_ID, COLDCALLS_COLLECTION_ID, id);
             return id;
         },
-        onSuccess: () => {
+        onSuccess: (id) => {
             queryClient.invalidateQueries({ queryKey: coldCallsKeys.all });
+            // Invalidate cache service
+            cacheService.invalidate(cacheKeys.coldCall(id));
+            cacheService.invalidatePattern('coldcalls:list:*');
         },
     });
 }
@@ -237,8 +296,11 @@ export function useDeleteColdCalls() {
 
             return ids;
         },
-        onSuccess: () => {
+        onSuccess: (ids) => {
             queryClient.invalidateQueries({ queryKey: coldCallsKeys.all });
+            // Invalidate cache service
+            ids.forEach(id => cacheService.invalidate(cacheKeys.coldCall(id)));
+            cacheService.invalidatePattern('coldcalls:list:*');
         },
     });
 }
@@ -262,8 +324,11 @@ export function useBulkClaimColdCalls() {
 
             return ids;
         },
-        onSuccess: () => {
+        onSuccess: (ids) => {
             queryClient.invalidateQueries({ queryKey: coldCallsKeys.all });
+            // Invalidate cache service
+            ids.forEach(id => cacheService.invalidate(cacheKeys.coldCall(id)));
+            cacheService.invalidatePattern('coldcalls:list:*');
         },
     });
 }
@@ -286,8 +351,11 @@ export function useBulkUpdateOutcome() {
 
             return ids;
         },
-        onSuccess: () => {
+        onSuccess: (ids) => {
             queryClient.invalidateQueries({ queryKey: coldCallsKeys.all });
+            // Invalidate cache service
+            ids.forEach(id => cacheService.invalidate(cacheKeys.coldCall(id)));
+            cacheService.invalidatePattern('coldcalls:list:*');
         },
     });
 }

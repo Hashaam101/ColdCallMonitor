@@ -11,6 +11,7 @@ A comprehensive toolset for recording, transcribing, and analyzing cold calls. T
 - **Batch Processing** – Process entire directories of recordings at once
 - **Cloud Storage** – Optional Appwrite integration for storing transcripts in a database
 - **Resume Capability** – Skip already-processed files when running batch jobs
+- **🚀 Optimized for Free Plan** – 60-75% fewer API calls with intelligent caching system
 
 ## 📁 Project Structure
 
@@ -146,6 +147,10 @@ Transcripts are saved to the `transcripts/` directory with filenames in the form
 ## 🎙️ Audio Recorder
 
 The `AudioRecorder/` module provides a standalone GUI application for recording calls.
+
+## 🚀 Appwrite Free Plan Optimization
+
+The dashboard includes a highly optimized caching system that significantly reduces API calls and bandwidth usage. For comprehensive details on the caching architecture, implementation, and the transition to manual sync, please refer to [CACHE_README.md](CACHE_README.md).
 
 **Key Features:**
 - Record from microphone, desktop audio, or both

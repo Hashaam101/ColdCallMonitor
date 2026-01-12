@@ -1,12 +1,16 @@
 /**
- * Team Members Hook
+ * Team Members Hook with Optimized Caching
  * 
- * React Query hooks for fetching team members.
+ * Minimizes database reads by:
+ * - Using longer stale times (team members change rarely)
+ * - Persistent caching with 1-hour TTL
+ * - Only refetching when explicitly invalidated
  */
 
 import { useQuery } from '@tanstack/react-query';
 import { Query } from 'appwrite';
 import { databases, DATABASE_ID, TEAM_MEMBERS_COLLECTION_ID } from '@/lib/appwrite';
+import { cacheService, cacheKeys, cacheTTL } from '@/lib/cache-service';
 import { useAuth } from '@/lib/auth';
 import type { TeamMember } from '@/types';
 
@@ -27,14 +31,28 @@ export function useTeamMembers() {
                 throw new Error('Database configuration missing');
             }
 
+            // Check cache first - team members rarely change
+            const cacheKey = cacheKeys.teamMembers();
+            const cached = cacheService.get<TeamMember[]>(cacheKey);
+            if (cached) {
+                return cached;
+            }
+
             const response = await databases.listDocuments(
                 DATABASE_ID,
                 TEAM_MEMBERS_COLLECTION_ID,
                 [Query.orderAsc('name'), Query.limit(100)]
             );
 
-            return response.documents as unknown as TeamMember[];
+            const members = response.documents as unknown as TeamMember[];
+
+            // Cache with long TTL - team members change rarely
+            cacheService.set(cacheKey, members, { ttl: cacheTTL.LONG });
+
+            return members;
         },
+        staleTime: 30 * 60 * 1000, // 30 minutes - team members change rarely
+        gcTime: 2 * 60 * 60 * 1000, // Keep in cache for 2 hours
     });
 }
 
@@ -53,15 +71,29 @@ export function useTeamMember(id: string) {
                 throw new Error('Database configuration missing');
             }
 
+            // Check cache first
+            const cacheKey = cacheKeys.teamMember(id);
+            const cached = cacheService.get<TeamMember>(cacheKey);
+            if (cached) {
+                return cached;
+            }
+
             const document = await databases.getDocument(
                 DATABASE_ID,
                 TEAM_MEMBERS_COLLECTION_ID,
                 id
             );
 
-            return document as unknown as TeamMember;
+            const member = document as unknown as TeamMember;
+
+            // Cache with long TTL
+            cacheService.set(cacheKey, member, { ttl: cacheTTL.LONG });
+
+            return member;
         },
         enabled: !!id,
+        staleTime: 30 * 60 * 1000, // 30 minutes
+        gcTime: 2 * 60 * 60 * 1000, // Keep in cache for 2 hours
     });
 }
 
