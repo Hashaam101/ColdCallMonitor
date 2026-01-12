@@ -111,18 +111,29 @@ A modern, feature-rich web dashboard for managing and tracking cold call data. B
 
 ## 🗂️ Data Fields Tracked
 
+The dashboard uses a normalized database schema. Cold calls reference a separate companies table:
+
+### Cold Call Fields
+
 | Field | Description |
 |-------|-------------|
-| Company Name | Name of the company contacted |
+| Company | Company name (from linked company record) |
 | Recipients | Person(s) spoken to |
 | Call Outcome | Result (Interested, Not Interested, Callback, No Answer, Wrong Number, Other) |
 | Interest Level | 1-10 rating of prospect interest |
-| Location | Company location |
 | Summary | AI-generated call summary |
 | Follow-up Actions | Next steps to take |
-| Google Maps Link | Location link for easy navigation |
 | Claimed By | Team member who owns the follow-up |
 | Date | When the call was recorded |
+
+### Company Fields (Separate Table)
+
+| Field | Description |
+|-------|-------------|
+| Company Name | Name of the company contacted |
+| Owner Name | Decision maker / company owner |
+| Location | Company location |
+| Google Maps Link | Location link for easy navigation |
 
 ---
 

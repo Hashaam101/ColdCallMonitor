@@ -16,18 +16,28 @@ A comprehensive toolset for recording, transcribing, and analyzing cold calls. T
 
 ```
 ColdCallMonitor/
-├── AudioRecorder/          # Standalone audio recording application
-│   ├── recorder.py         # GUI recorder with hotkey support
-│   ├── requirements.txt    # Recorder-specific dependencies
-│   └── README.md           # Detailed recorder documentation
-├── transcribe_calls.py     # Main transcription & analysis script
-├── appwrite_service.py     # Appwrite database integration
-├── add_sample_entry.py     # Test script for database entries
-├── Schema.dbml             # Database schema definition
-├── requirements.txt        # Core dependencies
-├── recordings/             # Default input directory for audio files
-└── transcripts/            # Default output directory for transcripts
+├── AudioRecorder/              # Standalone audio recording application
+│   ├── recorder.py             # GUI recorder with hotkey support
+│   ├── requirements.txt        # Recorder-specific dependencies
+│   └── README.md               # Detailed recorder documentation
+├── cold-calls-dashboard/       # Next.js web dashboard
+│   ├── src/
+│   │   ├── app/                # Next.js app router pages
+│   │   ├── components/         # React components (DataTable, Sidebar, etc.)
+│   │   ├── hooks/              # React Query hooks (useColdCalls, useAlerts)
+│   │   ├── lib/                # Appwrite client configuration
+│   │   └── types/              # TypeScript type definitions
+│   ├── package.json
+│   └── README.md               # Dashboard documentation
+├── transcribe_calls.py         # Main transcription & analysis script
+├── appwrite_service.py         # Appwrite database integration (normalized schema)
+├── seed_sample_data.py         # Seed script for populating sample data
+├── Schema.dbml                 # Database schema definition
+├── requirements.txt            # Core Python dependencies
+├── recordings/                 # Default input directory for audio files
+└── transcripts/                # Default output directory for transcripts
 ```
+
 
 ## 🚀 Quick Start
 
@@ -153,26 +163,86 @@ python recorder.py
 
 See [`AudioRecorder/README.md`](AudioRecorder/README.md) for detailed usage instructions.
 
-## 🗄️ Database Schema
+## � Cold Calls Dashboard
 
-When using Appwrite integration, transcripts are stored with the following structure:
+The `cold-calls-dashboard/` folder contains a modern Next.js web application for viewing and managing all your cold call data.
+
+**Key Features:**
+- **Interactive Data Table** – Resizable columns, inline editing, sorting, and multi-select
+- **Advanced Filtering** – Filter by date range, interest level, call outcome, and team member
+- **Team Collaboration** – Claim calls, assign follow-ups, and set alerts for teammates
+- **Real-Time Updates** – Changes sync instantly across all connected users via Appwrite
+- **Bulk Actions** – Export to CSV, bulk delete, bulk claim, and bulk outcome changes
+- **Alerts System** – Schedule reminders on any call with custom messages
+
+**Quick Start:**
+
+```bash
+cd cold-calls-dashboard
+pnpm install
+pnpm dev
+```
+
+See [`cold-calls-dashboard/README.md`](cold-calls-dashboard/README.md) for detailed setup and feature documentation.
+
+
+## �🗄️ Database Schema
+
+When using Appwrite integration, data is stored across multiple tables in a normalized schema:
+
+### Companies Table
+
+| Field              | Type   | Description                     |
+|--------------------|--------|---------------------------------|
+| `company_name`     | string | Company name (required)         |
+| `owner_name`       | string | Decision maker / owner name     |
+| `company_location` | string | Company location                |
+| `google_maps_link` | string | Google Maps URL                 |
+
+### Transcripts Table
+
+| Field        | Type   | Description                       |
+|--------------|--------|-----------------------------------|
+| `call_id`    | string | Reference to ColdCalls.$id        |
+| `transcript` | text   | Full call transcript (up to 16KB) |
+
+### ColdCalls Table
 
 | Field                  | Type    | Description                           |
 |------------------------|---------|---------------------------------------|
-| `transcript`           | text    | Full call transcript                  |
+| `company_id`           | string  | Reference to Companies.$id            |
 | `caller_name`          | string  | Name of the caller                    |
 | `recipients`           | string  | People spoken to                      |
-| `owner_name`           | string  | Decision maker identified             |
-| `company_name`         | string  | Company name                          |
-| `company_location`     | string  | Company location                      |
 | `call_outcome`         | string  | Result of the call                    |
 | `interest_level`       | int     | Interest score (1-10)                 |
-| `objections`           | text    | Objections raised                     |
-| `pain_points`          | text    | Pain points identified                |
-| `follow_up_actions`    | text    | Required follow-up actions            |
+| `objections`           | text    | Objections raised (JSON array)        |
+| `pain_points`          | text    | Pain points identified (JSON array)   |
+| `follow_up_actions`    | text    | Required follow-up actions (JSON)     |
 | `call_summary`         | text    | Brief summary of the call             |
 | `call_duration_estimate` | string | Estimated call duration             |
 | `model_used`           | string  | Gemini model version used             |
+| `claimed_by`           | string  | Reference to TeamMembers.$id          |
+
+### TeamMembers Table
+
+| Field   | Type   | Description          |
+|---------|--------|----------------------|
+| `name`  | string | Team member name     |
+| `email` | string | Team member email    |
+| `role`  | string | Role (admin/member)  |
+
+### Alerts Table
+
+| Field         | Type     | Description                    |
+|---------------|----------|--------------------------------|
+| `created_by`  | string   | Reference to TeamMembers.$id   |
+| `target_user` | string   | Reference to TeamMembers.$id   |
+| `entity_type` | string   | Entity type (e.g., cold_call)  |
+| `entity_id`   | string   | Reference to entity document   |
+| `entity_label`| string   | Display label                  |
+| `alert_time`  | datetime | Scheduled alert time           |
+| `message`     | text     | Alert message                  |
+| `is_dismissed`| boolean  | Whether alert is dismissed     |
 
 ## 📋 Supported Audio Formats
 
