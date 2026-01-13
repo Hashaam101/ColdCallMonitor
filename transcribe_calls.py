@@ -47,7 +47,7 @@ class CallAnalysis:
     company_name: Optional[str] = None
     company_location: Optional[str] = None
     call_date_pkt: Optional[str] = None
-    call_outcome: Optional[str] = None  # interested, callback, rejected, voicemail, no_answer, other
+    call_outcome: Optional[str] = None  # Interested, Not Interested, Callback, No Answer, Wrong Number, Other
     interest_level: Optional[int] = None  # 1-10 scale
     objections: Optional[list[str]] = None
     pain_points: Optional[list[str]] = None
@@ -57,6 +57,7 @@ class CallAnalysis:
     # Processing metadata
     timestamp: Optional[str] = None  # Format: DD-MM-YYYY_HH-MM-SS
     model_used: Optional[str] = None
+    phone_number: Optional[str] = None  # Phone number extracted from filename
 
 
 def get_analysis_prompt() -> str:
@@ -74,7 +75,7 @@ def get_analysis_prompt() -> str:
    - call_date_pkt: Date/Time of call in DD-MM-YYYY_HH-MM-SS format (local time/PKT)
 
 3. **Call Analysis**:
-   - call_outcome: One of: "interested", "callback_scheduled", "rejected", "voicemail", "no_answer", "gatekeeper_block", "not_decision_maker", "other"
+   - call_outcome: EXACTLY one of: "Interested", "Not Interested", "Callback", "No Answer", "Wrong Number", "Other"
    - interest_level: Rate prospect interest 1-10 (1=hostile, 5=neutral, 10=very interested). Use null if voicemail/no answer.
    - objections: List any objections raised (e.g., "no budget", "not interested", "bad timing", "using competitor")
    - pain_points: List any business problems/needs the prospect mentioned
@@ -99,6 +100,26 @@ Respond ONLY with a valid JSON object with these exact keys:
   "call_summary": "...",
   "call_duration_estimate": "..." or null
 }"""
+
+
+def extract_phone_from_filename(file_path: Path) -> Optional[str]:
+    """
+    Extracts phone number from filename.
+    Expected format: recording_DD-MM-YYYY_HH-MM-SS_PHONENUMBER.ext
+    Example: recording_13-01-2026_23-25-17_16096538442.wav -> 16096538442
+    """
+    filename = file_path.stem  # Get filename without extension
+    parts = filename.split('_')
+    
+    # Phone number should be the last part
+    if len(parts) >= 4:  # recording, date, time, phone
+        potential_phone = parts[-1]
+        # Validate it looks like a phone number (digits only, reasonable length)
+        if potential_phone.isdigit() and 7 <= len(potential_phone) <= 15:
+            logger.info(f"Extracted phone number from filename: {potential_phone}")
+            return potential_phone
+    
+    return None
 
 
 def sanitize_filename(name: str) -> str:
@@ -206,6 +227,9 @@ def transcribe_and_analyze(client: genai.Client, audio_path: Path, model_name: s
     
     # Generate detailed timestamp for filename from metadata
     timestamp_prefix = extract_recording_timestamp(audio_path)
+    
+    # Extract phone number from filename if present
+    phone_number = extract_phone_from_filename(audio_path)
 
     try:
         uploaded_file = client.files.upload(file=str(audio_path))
@@ -270,6 +294,7 @@ def transcribe_and_analyze(client: genai.Client, audio_path: Path, model_name: s
         call_duration_estimate=result.get('call_duration_estimate'),
         timestamp=timestamp_prefix,
         model_used=model_name,
+        phone_number=phone_number,
     )
 
 
@@ -339,6 +364,8 @@ def format_markdown(analysis: CallAnalysis) -> str:
         lines.append(f"- **Company**: {analysis.company_name}")
     if analysis.company_location:
         lines.append(f"- **Location**: {analysis.company_location}")
+    if analysis.phone_number:
+        lines.append(f"- **Phone Number**: {analysis.phone_number}")
     if analysis.call_date_pkt:
         lines.append(f"- **Date (PKT)**: {analysis.call_date_pkt}")
     if analysis.call_duration_estimate:

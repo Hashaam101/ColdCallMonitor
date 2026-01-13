@@ -32,7 +32,7 @@ COMPANIES_ATTRIBUTES = [
 # Transcripts table - stores call transcripts (one-to-one with ColdCalls)
 TRANSCRIPTS_ATTRIBUTES = [
     {"key": "call_id", "type": "string", "size": 36, "required": True},  # References ColdCalls.$id
-    {"key": "transcript", "type": "string", "size": 5000, "required": True},  # Reduced to 5KB to avoid row limit
+    {"key": "transcript", "type": "string", "size": 2000, "required": True},  # Reduced to 2KB to avoid row limit
 ]
 
 # ColdCalls table - main call metadata (normalized)
@@ -70,7 +70,7 @@ ALERTS_ATTRIBUTES = [
 
 NOTES_ATTRIBUTES = [
     {"key": "title", "type": "string", "size": 200, "required": True},
-    {"key": "note_text", "type": "string", "size": 10000, "required": True},
+    {"key": "note_text", "type": "string", "size": 4000, "required": True},  # Reduced to 4KB to avoid row limit
     {"key": "created_by", "type": "string", "size": 36, "required": True},
     {"key": "last_edited_by", "type": "string", "size": 36, "required": False},
     {"key": "is_archived", "type": "boolean", "required": False, "default": False},
@@ -209,6 +209,7 @@ class AppwriteService:
         """
         Saves a CallAnalysis to the database using normalized schema.
         Creates entries in both coldcalls and transcripts tables.
+        Links to existing company by phone number if found.
 
         Args:
             analysis: CallAnalysis dataclass instance or dict with call data
@@ -225,14 +226,28 @@ class AppwriteService:
 
             # Extract transcript for separate table
             transcript_text = data.pop("transcript", "")
+            
+            # Extract phone number for company matching
+            phone_number = data.pop("phone_number", None)
 
-            # Handle company data - create or find company if company_name provided
+            # Handle company data - find existing or create new company
             company_id = None
             company_fields = ["owner_name", "company_name", "company_location", "google_maps_link"]
             company_data = {k: data.pop(k, None) for k in company_fields}
             company_data = {k: v for k, v in company_data.items() if v is not None}
             
-            if company_data.get("company_name"):
+            # First, try to find existing company by phone number
+            if phone_number:
+                existing_company = self.find_company_by_phone(phone_number)
+                if existing_company:
+                    company_id = existing_company["$id"]
+                    logger.info(f"Found existing company by phone {phone_number}: {company_id}")
+            
+            # If no existing company found and we have company data, create new
+            if not company_id and company_data.get("company_name"):
+                # Include phone number when creating new company
+                if phone_number:
+                    company_data["phone_numbers"] = phone_number
                 company_id = self.save_company(company_data)
             
             if company_id:
@@ -263,13 +278,15 @@ class AppwriteService:
 
             # Create transcript document linked to the call
             if transcript_text:
+                # Truncate transcript to fit attribute size limit (2000 chars)
+                truncated_transcript = transcript_text[:2000]
                 self.databases.create_row(
                     database_id=self.database_id,
                     table_id=self.transcripts_collection_id,
                     row_id=ID.unique(),
                     data={
                         "call_id": call_id,
-                        "transcript": transcript_text
+                        "transcript": truncated_transcript
                     }
                 )
 
@@ -321,6 +338,47 @@ class AppwriteService:
             )
         except AppwriteException as e:
             logger.error(f"Failed to get company: {e.message}")
+            return None
+
+    def find_company_by_phone(self, phone_number: str) -> Optional[dict]:
+        """
+        Finds a company by phone number.
+        Searches for companies where phone_numbers field contains the given number.
+        Phone numbers are stored as comma-separated values.
+        
+        Args:
+            phone_number: The phone number to search for
+            
+        Returns:
+            Company document if found, None otherwise
+        """
+        try:
+            from appwrite.query import Query
+            
+            # Search for companies containing this phone number
+            # Appwrite Query.contains searches within a string field
+            result = self.databases.list_rows(
+                database_id=self.database_id,
+                table_id=self.companies_collection_id,
+                queries=[Query.contains("phone_numbers", phone_number)]
+            )
+            
+            rows = result.get("documents", result.get("rows", []))
+            
+            # Verify exact match (not partial)
+            for company in rows:
+                phone_numbers_str = company.get("phone_numbers", "")
+                if phone_numbers_str:
+                    # Split by comma and check for exact match
+                    phones = [p.strip() for p in phone_numbers_str.split(",")]
+                    if phone_number in phones:
+                        logger.info(f"Found company by phone {phone_number}: {company['$id']}")
+                        return company
+            
+            return None
+            
+        except AppwriteException as e:
+            logger.error(f"Failed to find company by phone: {e.message}")
             return None
 
     def get_transcript_for_call(self, call_id: str) -> Optional[str]:
