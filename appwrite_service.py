@@ -32,7 +32,7 @@ COMPANIES_ATTRIBUTES = [
 # Transcripts table - stores call transcripts (one-to-one with ColdCalls)
 TRANSCRIPTS_ATTRIBUTES = [
     {"key": "call_id", "type": "string", "size": 36, "required": True},  # References ColdCalls.$id
-    {"key": "transcript", "type": "string", "size": 16000, "required": True},  # 16KB max for transcript
+    {"key": "transcript", "type": "string", "size": 5000, "required": True},  # Reduced to 5KB to avoid row limit
 ]
 
 # ColdCalls table - main call metadata (normalized)

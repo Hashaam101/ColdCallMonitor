@@ -60,7 +60,8 @@ def load_config() -> dict:
     return {
         "hotkey": DEFAULT_HOTKEY,
         "save_mode": "default",  # "default" (recordings folder), "ask" or "auto"
-        "save_dir": DEFAULT_SAVE_DIR
+        "save_dir": DEFAULT_SAVE_DIR,
+        "auto_record_enabled": False
     }
 
 
@@ -368,6 +369,250 @@ class SaveApproveDialog(tk.Toplevel):
         """Cancel without saving."""
         self.result = None
         self.destroy()
+
+
+class CallDetectedDialog(tk.Toplevel):
+    """Dialog shown when calling beep is detected."""
+
+    def __init__(self, parent, callback):
+        super().__init__(parent)
+        self.callback = callback
+        self.result = None  # "yes", "no_15s", or None
+
+        self.title("Call Detected")
+        self.geometry("300x150")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+        self.attributes("-topmost", True)
+
+        # Center on screen
+        self.update_idletasks()
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = (screen_width - 300) // 2
+        y = (screen_height - 150) // 2
+        self.geometry(f"+{x}+{y}")
+
+        # Main frame
+        main_frame = ttk.Frame(self, padding=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            main_frame, text="Call Detected!",
+            font=("Arial", 14, "bold")
+        ).pack(pady=(0, 10))
+
+        ttk.Label(
+            main_frame, text="Should I start recording?",
+            font=("Arial", 10)
+        ).pack(pady=(0, 15))
+
+        # Buttons
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X)
+
+        ttk.Button(
+            btn_frame, text="Yes",
+            command=self._yes
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
+
+        ttk.Button(
+            btn_frame, text="No (15s)",
+            command=self._no_15s
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(5, 0))
+
+        # Keyboard shortcuts
+        self.bind("<y>", lambda e: self._yes())
+        self.bind("<Y>", lambda e: self._yes())
+        self.bind("<n>", lambda e: self._no_15s())
+        self.bind("<N>", lambda e: self._no_15s())
+        self.bind("<Escape>", lambda e: self._no_15s())
+
+        self.protocol("WM_DELETE_WINDOW", self._no_15s)
+
+    def _yes(self):
+        self.result = "yes"
+        self.destroy()
+        if self.callback:
+            self.callback("yes")
+
+    def _no_15s(self):
+        self.result = "no_15s"
+        self.destroy()
+        if self.callback:
+            self.callback("no_15s")
+
+
+class AutoRecordListener:
+    """Listens for calling beep and triggers recording prompt."""
+
+    def __init__(self, app, beep_path: Path):
+        self.app = app
+        self.beep_path = beep_path
+        self.is_listening = False
+        self.cooldown_until = None
+        self.reference_audio = None
+        self.listener_thread = None
+        self.loopback_device = None
+
+    def load_reference(self) -> bool:
+        """Load the reference beep audio for comparison."""
+        try:
+            if not self.beep_path.exists():
+                print(f"Beep file not found: {self.beep_path}")
+                return False
+
+            sample_rate, audio = wav.read(str(self.beep_path))
+            # Convert to mono if stereo
+            if len(audio.shape) > 1:
+                audio = audio.mean(axis=1)
+            # Normalize
+            audio = audio.astype(np.float32)
+            if audio.max() > 1:
+                audio = audio / 32768.0
+            self.reference_audio = audio
+            print(f"Loaded reference beep: {len(audio)} samples @ {sample_rate}Hz")
+            return True
+        except Exception as e:
+            print(f"Failed to load reference beep: {e}")
+            return False
+
+    def start_listening(self) -> bool:
+        """Start background listening thread."""
+        if self.is_listening:
+            return True
+
+        if not self.load_reference():
+            return False
+
+        # Get loopback device
+        if sd is None:
+            print("sounddevice not available")
+            return False
+
+        # Find loopback device
+        devices = []
+        try:
+            for i, d in enumerate(sd.query_devices()):
+                if d['max_input_channels'] > 0:
+                    name = d['name'].lower()
+                    if any(kw in name for kw in ['stereo mix', 'loopback', 'what u hear', 'wave out']):
+                        devices.append((i, d['name']))
+        except Exception as e:
+            print(f"Failed to query devices: {e}")
+            return False
+
+        if not devices:
+            print("No loopback device found for auto-record")
+            return False
+
+        self.loopback_device = devices[0][0]
+        print(f"Auto-record using device: {devices[0][1]}")
+
+        self.is_listening = True
+        self.listener_thread = threading.Thread(target=self._listen_loop, daemon=True)
+        self.listener_thread.start()
+        return True
+
+    def stop_listening(self):
+        """Stop listening."""
+        self.is_listening = False
+        if self.listener_thread:
+            self.listener_thread.join(timeout=2)
+            self.listener_thread = None
+
+    def _listen_loop(self):
+        """Main listening loop - captures desktop audio and compares."""
+        try:
+            buffer_duration = 2.0  # seconds
+            buffer_size = int(SAMPLE_RATE * buffer_duration)
+
+            with sd.InputStream(
+                device=self.loopback_device,
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype='float32',
+                blocksize=CHUNK_SIZE
+            ) as stream:
+                audio_buffer = np.zeros(buffer_size, dtype=np.float32)
+
+                while self.is_listening:
+                    # Check cooldown
+                    if self.cooldown_until and datetime.now() < self.cooldown_until:
+                        # Sleep during cooldown
+                        time.sleep(0.5)
+                        continue
+
+                    # Read audio
+                    data, _ = stream.read(CHUNK_SIZE)
+                    data = data.flatten()
+
+                    # Shift buffer and add new data
+                    audio_buffer = np.roll(audio_buffer, -len(data))
+                    audio_buffer[-len(data):] = data
+
+                    # Check for beep (every ~0.5 seconds)
+                    if self._detect_beep(audio_buffer):
+                        print("Beep detected!")
+                        self._trigger_alert()
+                        # Short cooldown after detection
+                        self.cooldown_until = datetime.now() + timedelta(seconds=5)
+
+                    time.sleep(0.1)  # Small delay between checks
+
+        except Exception as e:
+            print(f"Auto-record listener error: {e}")
+            self.is_listening = False
+
+    def _detect_beep(self, audio_buffer: np.ndarray) -> bool:
+        """Detect if the beep is present in the audio buffer using cross-correlation."""
+        if self.reference_audio is None:
+            return False
+
+        try:
+            from scipy import signal
+
+            # Normalize both signals
+            ref = self.reference_audio / (np.abs(self.reference_audio).max() + 1e-10)
+            buf = audio_buffer / (np.abs(audio_buffer).max() + 1e-10)
+
+            # Cross-correlate
+            correlation = signal.correlate(buf, ref, mode='valid')
+            max_corr = np.abs(correlation).max()
+
+            # Threshold for detection (tune as needed)
+            threshold = 0.3
+            return max_corr > threshold
+
+        except Exception as e:
+            print(f"Beep detection error: {e}")
+            return False
+
+    def _trigger_alert(self):
+        """Show alert dialog on main thread."""
+        if self.app and hasattr(self.app, 'root'):
+            self.app.root.after(0, self._show_dialog)
+
+    def _show_dialog(self):
+        """Show the call detected dialog."""
+        if self.app.is_recording:
+            return  # Already recording
+
+        def on_response(result):
+            if result == "yes":
+                self.app.start_recording()
+            elif result == "no_15s":
+                self.set_cooldown(15)
+
+        CallDetectedDialog(self.app.root, on_response)
+
+    def set_cooldown(self, seconds: int):
+        """Set cooldown period."""
+        self.cooldown_until = datetime.now() + timedelta(seconds=seconds)
+        print(f"Auto-record cooldown: {seconds}s")
+
+
 
 class RecordingOverlay(tk.Toplevel):
     """Small always-on-top overlay showing recording status with audio levels."""
@@ -779,6 +1024,11 @@ class RecorderApp:
         self._check_loopback()
         self._register_hotkey()
 
+        # Initialize auto-record listener
+        self.auto_record_listener = AutoRecordListener(self, CALLING_BEEP_FILE)
+        if self.config.get("auto_record_enabled", False):
+            self.auto_record_listener.start_listening()
+
         # Handle window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -915,6 +1165,18 @@ class RecorderApp:
             style="Link.TButton"
         )
         troubleshoot_btn.pack(pady=(8, 0))
+
+        # Auto Record checkbox
+        auto_record_frame = ttk.Frame(main_frame)
+        auto_record_frame.pack(fill=tk.X, pady=(10, 0))
+
+        self.auto_record_var = tk.BooleanVar(value=self.config.get("auto_record_enabled", False))
+        auto_record_cb = ttk.Checkbutton(
+            auto_record_frame, text="Auto-Record (detect calling beep)",
+            variable=self.auto_record_var,
+            command=self._on_auto_record_change
+        )
+        auto_record_cb.pack(anchor=tk.W)
 
         style = ttk.Style()
         style.configure("TButton", font=("Arial", 10))
@@ -1055,6 +1317,28 @@ class RecorderApp:
             self.config["save_dir"] = folder
             save_config(self.config)
 
+    def _on_auto_record_change(self):
+        """Handle auto-record checkbox change."""
+        enabled = self.auto_record_var.get()
+        self.config["auto_record_enabled"] = enabled
+        save_config(self.config)
+
+        if enabled:
+            if self.auto_record_listener.start_listening():
+                print("Auto-record listening enabled")
+            else:
+                messagebox.showwarning(
+                    "Auto-Record",
+                    "Could not enable auto-record.\n\n"
+                    "Make sure you have a loopback device (Stereo Mix) enabled."
+                )
+                self.auto_record_var.set(False)
+                self.config["auto_record_enabled"] = False
+                save_config(self.config)
+        else:
+            self.auto_record_listener.stop_listening()
+            print("Auto-record listening disabled")
+
     def show_troubleshoot(self):
         TroubleshootDialog(self.root)
 
@@ -1107,6 +1391,8 @@ class RecorderApp:
     def _on_close(self):
         """Handle window close."""
         self._unregister_hotkey()
+        if hasattr(self, 'auto_record_listener'):
+            self.auto_record_listener.stop_listening()
         if self.is_recording:
             self.recorder.stop()
         self.root.destroy()

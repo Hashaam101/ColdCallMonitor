@@ -95,11 +95,7 @@ export default function NotesPage() {
 
     const isLoading = loadingActive || loadingArchived || loadingDeleted;
 
-    const currentNotes = activeTab === 'active'
-        ? activeNotes
-        : activeTab === 'archived'
-            ? archivedNotes
-            : deletedNotes;
+
 
     return (
         <div className="min-h-screen bg-background flex">

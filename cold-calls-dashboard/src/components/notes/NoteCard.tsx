@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Copy, Edit, Archive, Trash2, Undo2, ArchiveRestore, AlertTriangle, MoreVertical } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useTeamMemberName } from '@/hooks';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -52,9 +53,11 @@ export function NoteCard({
 }: NoteCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const shouldTruncate = note.note_text.length > 200;
-    const displayText = isExpanded || !shouldTruncate 
-        ? note.note_text 
+    const displayText = isExpanded || !shouldTruncate
+        ? note.note_text
         : note.note_text.substring(0, 200) + '...';
+
+    const createdByName = useTeamMemberName(note.created_by);
 
     const handleCopy = async () => {
         try {
@@ -89,7 +92,7 @@ export function NoteCard({
                         >
                             <Copy className="h-4 w-4" />
                         </Button>
-                        
+
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button
@@ -120,7 +123,7 @@ export function NoteCard({
                                             <Archive className="h-4 w-4 mr-2" />
                                             Archive
                                         </DropdownMenuItem>
-                                        <DropdownMenuItem 
+                                        <DropdownMenuItem
                                             onClick={() => onDelete?.(note.$id)}
                                             className="text-destructive focus:text-destructive"
                                         >
@@ -129,7 +132,7 @@ export function NoteCard({
                                         </DropdownMenuItem>
                                     </>
                                 )}
-                                
+
                                 {view === 'archived' && (
                                     <>
                                         <DropdownMenuItem onClick={() => onUnarchive?.(note.$id)}>
@@ -141,7 +144,7 @@ export function NoteCard({
                                             Copy
                                         </DropdownMenuItem>
                                         <DropdownMenuSeparator />
-                                        <DropdownMenuItem 
+                                        <DropdownMenuItem
                                             onClick={() => onDelete?.(note.$id)}
                                             className="text-destructive focus:text-destructive"
                                         >
@@ -150,7 +153,7 @@ export function NoteCard({
                                         </DropdownMenuItem>
                                     </>
                                 )}
-                                
+
                                 {view === 'deleted' && (
                                     <>
                                         <DropdownMenuItem onClick={() => onRestore?.(note.$id)}>
@@ -162,7 +165,7 @@ export function NoteCard({
                                             Copy
                                         </DropdownMenuItem>
                                         <DropdownMenuSeparator />
-                                        <DropdownMenuItem 
+                                        <DropdownMenuItem
                                             onClick={() => onPermanentDelete?.(note.$id)}
                                             className="text-destructive focus:text-destructive"
                                         >
@@ -177,7 +180,7 @@ export function NoteCard({
                 </div>
             </CardHeader>
             <CardContent>
-                <p 
+                <p
                     className={cn(
                         "text-sm text-muted-foreground whitespace-pre-wrap",
                         shouldTruncate && !isExpanded && "cursor-pointer hover:text-foreground transition-colors"
@@ -197,7 +200,7 @@ export function NoteCard({
                     </Button>
                 )}
                 <div className="mt-3 text-xs text-muted-foreground">
-                    Created {formatDate(note.$createdAt)}
+                    Created {createdByName ? `by ${createdByName} ` : ''}on {formatDate(note.$createdAt)}
                     {note.$updatedAt !== note.$createdAt && (
                         <span> · Edited {formatDate(note.$updatedAt)}</span>
                     )}
