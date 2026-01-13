@@ -10,7 +10,8 @@ import subprocess
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 import numpy as np
 import scipy.io.wavfile as wav
@@ -283,7 +284,7 @@ class SaveApproveDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Save Recording")
-        self.geometry("350x200")
+        self.geometry("350x250")
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
@@ -295,7 +296,7 @@ class SaveApproveDialog(tk.Toplevel):
         # Center on parent
         self.update_idletasks()
         x = parent.winfo_x() + (parent.winfo_width() - 350) // 2
-        y = parent.winfo_y() + (parent.winfo_height() - 200) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - 250) // 2
         self.geometry(f"+{x}+{y}")
 
         # Main frame
@@ -311,7 +312,7 @@ class SaveApproveDialog(tk.Toplevel):
         phone_frame = ttk.Frame(main_frame)
         phone_frame.pack(fill=tk.X, pady=(0, 15))
 
-        ttk.Label(phone_frame, text="Phone Number (optional):").pack(anchor=tk.W)
+        ttk.Label(phone_frame, text="Phone Number:").pack(anchor=tk.W)
         self.phone_var = tk.StringVar()
         self.phone_entry = ttk.Entry(phone_frame, textvariable=self.phone_var, width=35)
         self.phone_entry.pack(fill=tk.X, pady=(5, 0))
@@ -331,36 +332,55 @@ class SaveApproveDialog(tk.Toplevel):
 
         self.approve_btn = ttk.Button(
             btn_frame, text="Yes - Approve (Y)",
-            command=self.approve,
-            style="Accent.TButton"
+            command=self.approve
         )
-        self.approve_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
+        self.approve_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5), ipady=5)
 
         self.save_btn = ttk.Button(
             btn_frame, text="No - Save (N)",
             command=self.save
         )
-        self.save_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(5, 0))
+        self.save_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(5, 0), ipady=5)
 
-        # Bind keyboard shortcuts
-        self.bind("<y>", lambda e: self.approve())
-        self.bind("<Y>", lambda e: self.approve())
-        self.bind("<n>", lambda e: self.save())
-        self.bind("<N>", lambda e: self.save())
+        # Bind keyboard shortcuts (only when not in entry field)
+        def on_key_y(e):
+            if self.focus_get() != self.phone_entry:
+                self.approve()
+        def on_key_n(e):
+            if self.focus_get() != self.phone_entry:
+                self.save()
+        
+        self.bind("<y>", on_key_y)
+        self.bind("<Y>", on_key_y)
+        self.bind("<n>", on_key_n)
+        self.bind("<N>", on_key_n)
         self.bind("<Escape>", lambda e: self.cancel())
         self.bind("<Return>", lambda e: self.approve())
 
         # Handle window close
         self.protocol("WM_DELETE_WINDOW", self.cancel)
 
+    def _validate_phone(self) -> bool:
+        """Validate phone number is entered."""
+        phone = self.phone_var.get().strip()
+        if not phone:
+            messagebox.showwarning("Phone Required", "Please enter a phone number.", parent=self)
+            self.phone_entry.focus()
+            return False
+        return True
+
     def approve(self):
         """Approve and save to Approved folder."""
+        if not self._validate_phone():
+            return
         self.result = "approve"
         self.phone_number = self.phone_var.get().strip()
         self.destroy()
 
     def save(self):
         """Save to regular recordings folder."""
+        if not self._validate_phone():
+            return
         self.result = "save"
         self.phone_number = self.phone_var.get().strip()
         self.destroy()
@@ -445,7 +465,19 @@ class CallDetectedDialog(tk.Toplevel):
 
 
 class AutoRecordListener:
-    """Listens for calling beep and triggers recording prompt."""
+    """Listens for calling beep and triggers recording prompt.
+    
+    Uses a multi-stage detection approach to minimize false positives:
+    1. FFT frequency analysis to detect 440Hz tone presence
+    2. Cross-correlation with reference audio for pattern matching
+    3. Requires consecutive detections to confirm
+    """
+
+    # Detection parameters
+    BEEP_FREQUENCY = 440  # Hz - standard calling beep frequency
+    FREQUENCY_TOLERANCE = 50  # Hz tolerance around target frequency
+    CONSECUTIVE_REQUIRED = 2  # Require 2 consecutive detections to confirm
+    DETECTION_WINDOW = 2.0  # Seconds within which consecutive detections must occur
 
     def __init__(self, app, beep_path: Path):
         self.app = app
@@ -455,6 +487,8 @@ class AutoRecordListener:
         self.reference_audio = None
         self.listener_thread = None
         self.loopback_device = None
+        # Track consecutive detections
+        self.detection_times = []
 
     def load_reference(self) -> bool:
         """Load the reference beep audio for comparison."""
@@ -511,6 +545,7 @@ class AutoRecordListener:
         print(f"Auto-record using device: {devices[0][1]}")
 
         self.is_listening = True
+        self.detection_times = []  # Reset detection history
         self.listener_thread = threading.Thread(target=self._listen_loop, daemon=True)
         self.listener_thread.start()
         return True
@@ -527,6 +562,7 @@ class AutoRecordListener:
         try:
             buffer_duration = 2.0  # seconds
             buffer_size = int(SAMPLE_RATE * buffer_duration)
+            check_interval = 0  # Counter for check interval
 
             with sd.InputStream(
                 device=self.loopback_device,
@@ -552,41 +588,133 @@ class AutoRecordListener:
                     audio_buffer = np.roll(audio_buffer, -len(data))
                     audio_buffer[-len(data):] = data
 
-                    # Check for beep (every ~0.5 seconds)
-                    if self._detect_beep(audio_buffer):
-                        print("Beep detected!")
-                        self._trigger_alert()
-                        # Short cooldown after detection
-                        self.cooldown_until = datetime.now() + timedelta(seconds=5)
+                    check_interval += 1
+                    # Only check every ~5 reads (~0.1 seconds at 1024 chunk size)
+                    if check_interval >= 5:
+                        check_interval = 0
+                        
+                        # Check for beep using multi-stage detection
+                        if self._detect_beep_multistage(audio_buffer):
+                            # Record this detection time
+                            now = datetime.now()
+                            self.detection_times.append(now)
+                            
+                            # Remove old detections outside window
+                            cutoff = now - timedelta(seconds=self.DETECTION_WINDOW)
+                            self.detection_times = [t for t in self.detection_times if t > cutoff]
+                            
+                            # Check if we have enough consecutive detections
+                            if len(self.detection_times) >= self.CONSECUTIVE_REQUIRED:
+                                print(f"Beep confirmed! ({len(self.detection_times)} consecutive detections)")
+                                self._trigger_alert()
+                                # Reset and cooldown
+                                self.detection_times = []
+                                self.cooldown_until = datetime.now() + timedelta(seconds=5)
 
-                    time.sleep(0.1)  # Small delay between checks
+                    time.sleep(0.02)  # Small delay between reads
 
         except Exception as e:
             print(f"Auto-record listener error: {e}")
             self.is_listening = False
 
-    def _detect_beep(self, audio_buffer: np.ndarray) -> bool:
-        """Detect if the beep is present in the audio buffer using cross-correlation."""
+    def _detect_beep_multistage(self, audio_buffer: np.ndarray) -> bool:
+        """Multi-stage beep detection for high accuracy.
+        
+        Stage 1: Check if audio has sufficient energy (not silence)
+        Stage 2: FFT frequency analysis to detect target frequency presence
+        Stage 3: Cross-correlation with reference audio
+        """
         if self.reference_audio is None:
             return False
 
         try:
+            # Stage 1: Energy check - reject silence
+            rms = np.sqrt(np.mean(audio_buffer ** 2))
+            if rms < 0.01:  # Too quiet, likely silence
+                return False
+
+            # Stage 2: Frequency analysis
+            if not self._check_frequency(audio_buffer):
+                return False
+
+            # Stage 3: Cross-correlation check
+            if not self._check_correlation(audio_buffer):
+                return False
+
+            return True
+
+        except Exception as e:
+            print(f"Beep detection error: {e}")
+            return False
+
+    def _check_frequency(self, audio_buffer: np.ndarray) -> bool:
+        """Check if the target beep frequency is present in the audio."""
+        try:
+            # Use FFT to analyze frequency content
+            fft = np.fft.rfft(audio_buffer)
+            freqs = np.fft.rfftfreq(len(audio_buffer), 1 / SAMPLE_RATE)
+            magnitudes = np.abs(fft)
+            
+            # Find the dominant frequency
+            peak_idx = np.argmax(magnitudes)
+            peak_freq = freqs[peak_idx]
+            
+            # Also check the magnitude around target frequency
+            target_low = self.BEEP_FREQUENCY - self.FREQUENCY_TOLERANCE
+            target_high = self.BEEP_FREQUENCY + self.FREQUENCY_TOLERANCE
+            target_mask = (freqs >= target_low) & (freqs <= target_high)
+            target_magnitude = magnitudes[target_mask].max() if target_mask.any() else 0
+            
+            # Check if target frequency is strong relative to overall signal
+            total_magnitude = magnitudes.max()
+            if total_magnitude < 1e-10:
+                return False
+                
+            target_ratio = target_magnitude / total_magnitude
+            
+            # The 440Hz tone should be prominent (at least 30% of max)
+            # Or the dominant frequency should be near our target
+            freq_match = abs(peak_freq - self.BEEP_FREQUENCY) < self.FREQUENCY_TOLERANCE
+            strong_target = target_ratio > 0.3
+            
+            if freq_match or strong_target:
+                print(f"  [Freq Pass] Peak: {peak_freq:.1f}Hz, Target Ratio: {target_ratio:.2f}")
+            
+            return freq_match or strong_target
+            
+        except Exception:
+            return False
+
+    def _check_correlation(self, audio_buffer: np.ndarray) -> bool:
+        """Check cross-correlation with reference beep audio."""
+        try:
             from scipy import signal
 
             # Normalize both signals
-            ref = self.reference_audio / (np.abs(self.reference_audio).max() + 1e-10)
-            buf = audio_buffer / (np.abs(audio_buffer).max() + 1e-10)
+            ref_max = np.abs(self.reference_audio).max()
+            buf_max = np.abs(audio_buffer).max()
+            
+            if ref_max < 1e-10 or buf_max < 1e-10:
+                return False
+                
+            ref = self.reference_audio / ref_max
+            buf = audio_buffer / buf_max
 
             # Cross-correlate
             correlation = signal.correlate(buf, ref, mode='valid')
             max_corr = np.abs(correlation).max()
+            
+            # Normalize by length for consistent threshold
+            norm_corr = max_corr / len(ref)
+            
+            print(f"  [Corr Check] Value: {norm_corr:.3f}")
 
-            # Threshold for detection (tune as needed)
-            threshold = 0.3
-            return max_corr > threshold
+            # Threshold based on observed values: beep peaks at ~0.15
+            # Using 0.12 to require strong match while allowing detection
+            threshold = 0.12
+            return norm_corr > threshold
 
-        except Exception as e:
-            print(f"Beep detection error: {e}")
+        except Exception:
             return False
 
     def _trigger_alert(self):
@@ -1182,6 +1310,8 @@ class RecorderApp:
         style.configure("TButton", font=("Arial", 10))
         style.configure("Small.TButton", font=("Arial", 8))
         style.configure("Link.TButton", font=("Arial", 9, "underline"))
+        # Define Accent.TButton for a primary look
+        style.configure("Accent.TButton", font=("Arial", 10, "bold"), foreground="#007acc")
 
     def _setup_save_location(self, parent_frame):
         """Setup save location settings in the given frame."""
