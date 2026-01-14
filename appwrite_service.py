@@ -40,6 +40,8 @@ COLDCALLS_ATTRIBUTES = [
     {"key": "company_id", "type": "string", "size": 36, "required": False},  # References companies.$id
     {"key": "caller_name", "type": "string", "size": 100, "required": False},
     {"key": "recipients", "type": "string", "size": 200, "required": False},
+    {"key": "owner_name", "type": "string", "size": 100, "required": False},  # Owner/decision maker from call
+    {"key": "phone_number", "type": "string", "size": 20, "required": False},  # Phone number from filename
     {"key": "call_outcome", "type": "string", "size": 30, "required": False},
     {"key": "interest_level", "type": "integer", "required": False, "min": 1, "max": 10},
     {"key": "objections", "type": "string", "size": 2000, "required": False},
@@ -50,6 +52,7 @@ COLDCALLS_ATTRIBUTES = [
     {"key": "model_used", "type": "string", "size": 50, "required": False},
     {"key": "claimed_by", "type": "string", "size": 36, "required": False},
 ]
+
 
 TEAM_MEMBERS_ATTRIBUTES = [
     {"key": "name", "type": "string", "size": 100, "required": True},
@@ -227,14 +230,20 @@ class AppwriteService:
             # Extract transcript for separate table
             transcript_text = data.pop("transcript", "")
             
-            # Extract phone number for company matching
-            phone_number = data.pop("phone_number", None)
+            # Extract phone number for company matching (but keep a copy for the call record)
+            phone_number = data.get("phone_number")  # Get, don't pop - we want to keep it
 
             # Handle company data - find existing or create new company
+            # Copy owner_name for company use, but keep it in data for call record
             company_id = None
-            company_fields = ["owner_name", "company_name", "company_location", "google_maps_link"]
+            owner_name = data.get("owner_name")  # Keep in data for call record
+            company_fields = ["company_name", "company_location", "google_maps_link"]
             company_data = {k: data.pop(k, None) for k in company_fields}
             company_data = {k: v for k, v in company_data.items() if v is not None}
+            
+            # Add owner_name to company_data if available
+            if owner_name:
+                company_data["owner_name"] = owner_name
             
             # First, try to find existing company by phone number
             if phone_number:
@@ -252,6 +261,7 @@ class AppwriteService:
             
             if company_id:
                 data["company_id"] = company_id
+
 
             # Convert list fields to JSON strings
             for field in ["objections", "pain_points", "follow_up_actions"]:
