@@ -20,6 +20,7 @@ export interface Company {
     company_name: string;
     company_location: string | null;
     google_maps_link: string | null;
+    phone_numbers: string | null;  // Comma-separated phone numbers
 }
 
 export type CompanyCreateData = {
@@ -83,6 +84,7 @@ export interface ColdCall {
     company_name?: string | null;
     company_location?: string | null;
     google_maps_link?: string | null;
+    phone_numbers?: string | null;  // Comma-separated phone numbers from company
 }
 
 export type ColdCallUpdateData = Partial<Omit<ColdCall, '$id' | '$createdAt' | '$updatedAt' | 'company'>>;

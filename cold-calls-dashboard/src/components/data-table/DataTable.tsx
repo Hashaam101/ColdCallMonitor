@@ -10,6 +10,7 @@ import { BulkActions } from './BulkActions';
 import { EditableCell } from './EditableCell';
 import { CallDetailsSheet } from './CallDetailsSheet';
 import { AlertBellButton } from './AlertBellButton';
+import { CopyPhoneButton } from './CopyPhoneButton';
 import { AlertDialog } from '@/components/alerts/AlertDialog';
 
 import { StatsCards } from '@/components/dashboard/StatsCards';
@@ -42,7 +43,9 @@ import { Settings2 } from 'lucide-react';
 // Column definitions (initial defaults)
 // Column definitions (initial defaults)
 const defaultColumns: { key: keyof ColdCall; label: string; width: number; editable?: boolean; visible?: boolean }[] = [
+    { key: 'owner_name', label: 'Owner', width: 120, editable: true, visible: true },
     { key: 'company_name', label: 'Company', width: 150, editable: true, visible: true },
+    { key: 'phone_numbers', label: 'Phone', width: 120, editable: true, visible: true },
     { key: 'recipients', label: 'Recipients', width: 120, editable: true, visible: true },
     { key: 'call_outcome', label: 'Outcome', width: 120, editable: true, visible: true },
     { key: 'interest_level', label: 'Interest', width: 100, editable: true, visible: true },
@@ -51,6 +54,9 @@ const defaultColumns: { key: keyof ColdCall; label: string; width: number; edita
     { key: 'follow_up_actions', label: 'Follow-up', width: 150, editable: true, visible: true },
     { key: 'google_maps_link', label: 'Maps', width: 80, editable: true, visible: true },
     { key: '$createdAt', label: 'Date', width: 100, editable: false, visible: true },
+    // Hidden by default but available
+    { key: 'model_used', label: 'Model', width: 100, editable: false, visible: false },
+    { key: 'call_duration_estimate', label: 'Duration', width: 100, editable: false, visible: false },
 ];
 
 const ITEMS_PER_PAGE = 20;
@@ -533,7 +539,14 @@ export function DataTable() {
                                                 />
 
 
-                                                {/* 3. Claim (Person/Avatar) */}
+                                                {/* 3. Copy Phone (Phone) */}
+                                                {call.phone_numbers ? (
+                                                    <CopyPhoneButton phoneNumber={call.phone_numbers} />
+                                                ) : (
+                                                    <div className="w-8" /> // Spacer
+                                                )}
+
+                                                {/* 4. Claim (Person/Avatar) */}
                                                 <Tooltip delayDuration={300}>
                                                     <TooltipTrigger asChild>
                                                         <Button

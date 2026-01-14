@@ -29,8 +29,8 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { useTeamMembers, useAlertsByEntity } from '@/hooks';
-import { Bell } from 'lucide-react';
+import { useTeamMembers, useAlertsByEntity, useColdCallsByCompany } from '@/hooks';
+import { Bell, History } from 'lucide-react';
 
 interface CallDetailsSheetProps {
     call: ColdCall | null;
@@ -105,12 +105,27 @@ export function CallDetailsSheet({ call, open, onOpenChange, onSetAlert }: CallD
                                 <Building2 className="h-5 w-5 text-muted-foreground" />
                                 {call.company_name || 'Unknown Company'}
                             </SheetTitle>
-                            <SheetDescription className="flex items-center gap-2">
-                                {call.company_location && (
-                                    <>
-                                        <MapPin className="h-3.5 w-3.5" />
-                                        {call.company_location}
-                                    </>
+                            <SheetDescription className="flex flex-col gap-1">
+                                <span className="flex items-center gap-2">
+                                    {call.company_location && (
+                                        <>
+                                            <MapPin className="h-3.5 w-3.5" />
+                                            {call.company_location}
+                                        </>
+                                    )}
+                                </span>
+                                {call.owner_name && (
+                                    <span className="flex items-center gap-2">
+                                        <span className="w-1 h-1 rounded-full bg-muted-foreground/50" />
+                                        <User className="h-3.5 w-3.5" />
+                                        {call.owner_name}
+                                    </span>
+                                )}
+                                {call.phone_numbers && (
+                                    <span className="flex items-center gap-2">
+                                        <Phone className="h-3.5 w-3.5" />
+                                        {call.phone_numbers}
+                                    </span>
                                 )}
                             </SheetDescription>
                         </div>
@@ -132,12 +147,18 @@ export function CallDetailsSheet({ call, open, onOpenChange, onSetAlert }: CallD
                 <ScrollArea className="flex-1">
                     <div className="px-6 py-4">
                         <Tabs defaultValue="overview" className="w-full">
-                            <TabsList className="grid w-full grid-cols-4 mb-4">
+                            <TabsList className="grid w-full grid-cols-5 mb-4">
                                 <TabsTrigger value="overview">Overview</TabsTrigger>
                                 <TabsTrigger value="transcript">Transcript</TabsTrigger>
                                 <TabsTrigger value="insights">Insights</TabsTrigger>
+                                <TabsTrigger value="history">History</TabsTrigger>
                                 <TabsTrigger value="alerts">Alerts</TabsTrigger>
                             </TabsList>
+
+                            {/* Call History Tab Content */}
+                            <TabsContent value="history">
+                                <CallHistoryTabContent companyId={call.company_id} currentCallId={call.$id} />
+                            </TabsContent>
 
                             {/* Alert Tab Content */}
                             <TabsContent value="alerts">
@@ -410,6 +431,101 @@ function AlertsTabContent({ callId }: { callId: string }) {
                             <p className="text-xs text-muted-foreground mt-2">
                                 Created on {format(new Date(alert.$createdAt), 'MMM d')}
                             </p>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+// Inner component to handle call history tab content
+function CallHistoryTabContent({ companyId, currentCallId }: { companyId: string | null; currentCallId: string }) {
+    const { data: calls, isLoading } = useColdCallsByCompany(companyId);
+
+    if (!companyId) {
+        return (
+            <div className="text-center py-8 text-muted-foreground">
+                <History className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No company associated with this call</p>
+            </div>
+        );
+    }
+
+    if (isLoading) {
+        return <div className="text-center py-8 text-muted-foreground">Loading call history...</div>;
+    }
+
+    if (!calls || calls.length === 0) {
+        return (
+            <div className="text-center py-8 text-muted-foreground">
+                <History className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No call history found</p>
+            </div>
+        );
+    }
+
+    const getOutcomeColor = (outcome: string | null) => {
+        switch (outcome?.toLowerCase()) {
+            case 'interested':
+                return 'bg-green-500/20 text-green-500';
+            case 'callback':
+                return 'bg-blue-500/20 text-blue-500';
+            case 'not interested':
+                return 'bg-red-500/20 text-red-500';
+            case 'no answer':
+                return 'bg-yellow-500/20 text-yellow-500';
+            default:
+                return 'bg-muted text-muted-foreground';
+        }
+    };
+
+    return (
+        <div className="space-y-3">
+            <p className="text-sm text-muted-foreground mb-4">
+                {calls.length} call{calls.length !== 1 ? 's' : ''} to this company
+            </p>
+            {calls.map(call => {
+                const isCurrentCall = call.$id === currentCallId;
+                return (
+                    <div
+                        key={call.$id}
+                        className={`p-4 rounded-lg border ${isCurrentCall ? 'border-primary bg-primary/5' : 'bg-muted/30'}`}
+                    >
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <span className="text-sm font-medium">
+                                        {format(new Date(call.$createdAt), 'PPP')}
+                                    </span>
+                                    {isCurrentCall && (
+                                        <Badge variant="outline" className="text-xs">Current</Badge>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2 mb-2">
+                                    {call.call_outcome && (
+                                        <Badge className={`text-xs ${getOutcomeColor(call.call_outcome)}`}>
+                                            {call.call_outcome}
+                                        </Badge>
+                                    )}
+                                    {call.interest_level && (
+                                        <span className="text-xs text-muted-foreground">
+                                            Interest: {call.interest_level}/10
+                                        </span>
+                                    )}
+                                </div>
+                                {call.call_summary && (
+                                    <p className="text-sm text-muted-foreground line-clamp-2">
+                                        {call.call_summary}
+                                    </p>
+                                )}
+                                {call.recipients && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        Spoke with: {call.recipients}
+                                    </p>
+                                )}
+                            </div>
                         </div>
                     </div>
                 );

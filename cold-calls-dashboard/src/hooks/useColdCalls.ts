@@ -127,22 +127,26 @@ async function enrichColdCalls(calls: ColdCall[]): Promise<ColdCall[]> {
     });
 
     const transcriptsMap = new Map<string, string>();
-    (transcriptsResult.documents as unknown as Transcript[]).forEach(t => 
+    (transcriptsResult.documents as unknown as Transcript[]).forEach(t =>
         transcriptsMap.set(t.call_id, t.transcript)
     );
 
     // Enrich calls with flattened company data and transcripts
     return calls.map(call => {
         const company = call.company_id ? companiesMap.get(call.company_id) : null;
+        // Cast to access potential call-level fields that may come from Appwrite
+        const callWithFields = call as ColdCall & { phone_number?: string };
         return {
             ...call,
             company: company || null,
             transcript: transcriptsMap.get(call.$id) || '',
-            // Flatten company fields for UI backwards compatibility
-            owner_name: company?.owner_name || null,
+            // Prefer call-level values, fall back to company values for backwards compatibility
+            owner_name: call.owner_name || company?.owner_name || null,
             company_name: company?.company_name || null,
             company_location: company?.company_location || null,
             google_maps_link: company?.google_maps_link || null,
+            // phone_number (singular) is on call, phone_numbers (plural) is on company
+            phone_numbers: callWithFields.phone_number || company?.phone_numbers || null,
         };
     });
 }
@@ -222,6 +226,36 @@ export function useColdCall(id: string) {
         enabled: !!id,
         staleTime: 5 * 60 * 1000, // 5 minutes
         gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
+    });
+}
+
+// Fetch all cold calls for a specific company (for call history)
+export function useColdCallsByCompany(companyId: string | null) {
+    return useQuery({
+        queryKey: [...coldCallsKeys.all, 'company', companyId],
+        queryFn: async () => {
+            if (!DATABASE_ID || !COLDCALLS_COLLECTION_ID || !companyId) {
+                return [];
+            }
+
+            const response = await databases.listDocuments(
+                DATABASE_ID,
+                COLDCALLS_COLLECTION_ID,
+                [
+                    Query.equal('company_id', companyId),
+                    Query.orderDesc('$createdAt'),
+                    Query.limit(50)
+                ]
+            );
+
+            const calls = response.documents as unknown as ColdCall[];
+
+            // Enrich with company and transcript data
+            return enrichColdCalls(calls);
+        },
+        enabled: !!companyId,
+        staleTime: 5 * 60 * 1000,
+        gcTime: 30 * 60 * 1000,
     });
 }
 
