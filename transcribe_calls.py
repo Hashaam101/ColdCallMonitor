@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 # Supported audio formats
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".wma"}
 
+# File to track processed recordings (prevents re-transcription)
+PROCESSED_RECORDINGS_FILE = "processed_recordings.txt"
+
 
 @dataclass
 class CallAnalysis:
@@ -64,7 +67,9 @@ def get_analysis_prompt() -> str:
     """Returns the prompt for Gemini to analyze cold calls."""
     return """Analyze this cold call recording carefully. Extract the following information:
 
-1. **Transcript**: Provide a verbatim transcription. Identify speakers by name if mentioned (e.g., "Hashaam:", "John:"), otherwise use "Caller:" and "Recipient:".
+IMPORTANT: The cold caller may have side conversations with teammates in Urdu or Hindi. These internal conversations should be COMPLETELY EXCLUDED from the transcript. Only transcribe the actual cold call conversation with the recipient (typically in English).
+
+1. **Transcript**: Provide a verbatim transcription of ONLY the cold call conversation (exclude any Urdu/Hindi side talk between teammates). Identify speakers by name if mentioned (e.g., "Hashaam:", "John:"), otherwise use "Caller:" and "Recipient:".
 
 2. **Metadata**:
    - caller_name: The salesperson/caller's name
@@ -502,27 +507,42 @@ def find_audio_files(path: Path) -> list[Path]:
             return []
 
     if path.is_dir():
-        files = []
+        files = set()  # Use set to avoid duplicates on case-insensitive file systems (Windows)
         for ext in AUDIO_EXTENSIONS:
-            files.extend(path.glob(f"*{ext}"))
-            files.extend(path.glob(f"*{ext.upper()}"))
+            files.update(path.glob(f"*{ext}"))
+            files.update(path.glob(f"*{ext.upper()}"))
         return sorted(files)
 
     return []
 
 
-def get_processed_files(output_dir: Path) -> set[str]:
-    """Returns set of already processed file stems (for resume capability)."""
+def load_processed_recordings(base_dir: Path) -> set[str]:
+    """Loads the set of already processed recording filenames from the tracking file."""
+    processed_file = base_dir / PROCESSED_RECORDINGS_FILE
     processed = set()
-    for json_file in output_dir.glob("*.json"):
+    
+    if processed_file.exists():
         try:
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                if 'source_file' in data:
-                    processed.add(data['source_file'])
-        except Exception:
-            pass
+            with open(processed_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    filename = line.strip()
+                    if filename:
+                        processed.add(filename)
+            logger.info(f"Loaded {len(processed)} previously processed recordings from {PROCESSED_RECORDINGS_FILE}")
+        except Exception as e:
+            logger.warning(f"Failed to load processed recordings file: {e}")
+    
     return processed
+
+
+def add_processed_recording(base_dir: Path, filename: str) -> None:
+    """Adds a recording filename to the processed recordings tracking file."""
+    processed_file = base_dir / PROCESSED_RECORDINGS_FILE
+    try:
+        with open(processed_file, 'a', encoding='utf-8') as f:
+            f.write(f"{filename}\n")
+    except Exception as e:
+        logger.warning(f"Failed to update processed recordings file: {e}")
 
 
 def main():
@@ -535,7 +555,9 @@ Examples:
   %(prog)s recordings/                 # Process all audio in folder
   %(prog)s recordings/ -f json md      # Output as JSON and Markdown
   %(prog)s recordings/ -o transcripts/ # Custom output directory
-  %(prog)s recordings/ --resume        # Skip already processed files
+
+Note: Processed recordings are automatically tracked in processed_recordings.txt
+      to prevent duplicate transcriptions.
         """
     )
 
@@ -559,11 +581,6 @@ Examples:
         "-m", "--model",
         default=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         help="Gemini model to use (default: gemini-2.5-flash)"
-    )
-    parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Skip files that have already been processed"
     )
     parser.add_argument(
         "--no-summary",
@@ -604,12 +621,10 @@ Examples:
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Check for already processed files
-    processed_files = set()
-    if args.resume:
-        processed_files = get_processed_files(output_dir)
-        if processed_files:
-            logger.info(f"Resuming: {len(processed_files)} files already processed")
+    # Load already processed recordings from tracking file
+    # This is always loaded (not just with --resume) to prevent duplicate transcriptions
+    input_dir = input_path if input_path.is_dir() else input_path.parent
+    processed_files = load_processed_recordings(input_dir)
 
     # Initialize Gemini client
     try:
@@ -665,6 +680,9 @@ Examples:
                 if doc_id:
                     logger.info(f"  Appwrite ID: {doc_id}")
 
+            # Mark as processed in the tracking file
+            add_processed_recording(input_dir, audio_file.name)
+            
             results.append((audio_file.name, analysis))
         else:
             logger.error(f"  Failed to process {audio_file.name}")

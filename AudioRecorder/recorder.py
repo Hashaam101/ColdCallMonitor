@@ -81,7 +81,7 @@ class HotkeyDialog(tk.Toplevel):
     def __init__(self, parent, current_hotkey: str):
         super().__init__(parent)
         self.title("Set Hotkey")
-        self.geometry("350x180")
+        self.geometry("350x250")
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
@@ -140,30 +140,66 @@ class HotkeyDialog(tk.Toplevel):
         ).pack(side=tk.LEFT)
 
     def start_capture(self):
-        """Start capturing keyboard input."""
-        if keyboard is None:
-            messagebox.showerror("Error", "Keyboard library not installed.\nRun: pip install keyboard")
-            return
-
+        """Start capturing keyboard input using Tkinter bindings."""
         self.is_capturing = True
-        self.captured_keys = []
+        self.captured_modifiers = set()
+        self.captured_key = None
         self.hotkey_var.set("Press keys...")
         self.capture_btn.config(text="Listening...", state="disabled")
-
-        # Use keyboard library to capture the hotkey
-        def on_key(event):
-            if not self.is_capturing:
+        
+        # Bind key events to the dialog window
+        self.bind("<KeyPress>", self._on_key_press)
+        self.bind("<KeyRelease>", self._on_key_release)
+        self.focus_force()
+    
+    def _on_key_press(self, event):
+        """Handle key press during capture."""
+        if not self.is_capturing:
+            return
+        
+        # Check for modifiers
+        if event.keysym in ('Control_L', 'Control_R'):
+            self.captured_modifiers.add('ctrl')
+        elif event.keysym in ('Alt_L', 'Alt_R'):
+            self.captured_modifiers.add('alt')
+        elif event.keysym in ('Shift_L', 'Shift_R'):
+            self.captured_modifiers.add('shift')
+        elif event.keysym in ('Win_L', 'Win_R', 'Super_L', 'Super_R'):
+            self.captured_modifiers.add('win')
+        else:
+            # Regular key - use the character or keysym
+            key = event.keysym.lower()
+            # Handle special cases
+            if key == 'escape':
+                # Cancel capture on Escape
+                self._cancel_capture()
                 return
-
-            # Build the hotkey string
-            hotkey = keyboard.read_hotkey(suppress=False)
+            self.captured_key = key
+    
+    def _on_key_release(self, event):
+        """Handle key release - finalize capture when all keys released."""
+        if not self.is_capturing:
+            return
+        
+        # Only finalize if we have a regular key captured
+        if self.captured_key:
             self.is_capturing = False
-
-            # Update UI from main thread
-            self.after(100, lambda: self.finish_capture(hotkey))
-
-        # Start listening in a thread
-        threading.Thread(target=on_key, args=(None,), daemon=True).start()
+            self.unbind("<KeyPress>")
+            self.unbind("<KeyRelease>")
+            
+            # Build hotkey string
+            parts = list(self.captured_modifiers) + [self.captured_key]
+            hotkey = '+'.join(parts)
+            
+            self.finish_capture(hotkey)
+    
+    def _cancel_capture(self):
+        """Cancel the capture operation."""
+        self.is_capturing = False
+        self.unbind("<KeyPress>")
+        self.unbind("<KeyRelease>")
+        self.hotkey_var.set(self.current_hotkey.upper())
+        self.capture_btn.config(text="Click to Capture Hotkey", state="normal")
 
     def finish_capture(self, hotkey: str):
         """Finish capturing and display the result."""
@@ -1480,10 +1516,10 @@ class RecorderApp:
 
         try:
             # Always unregister first before re-registering
-            keyboard.unhook_all_hotkeys()
-            self.hotkey_registered = False
+            self._unregister_hotkey()
 
-            keyboard.add_hotkey(self.hotkey, self._on_hotkey, suppress=False)
+            # Store the hotkey hook so we can remove it later
+            self._hotkey_hook = keyboard.add_hotkey(self.hotkey, self._on_hotkey, suppress=False)
             self.hotkey_registered = True
             print(f"Hotkey registered: {self.hotkey}")
         except Exception as e:
@@ -1495,15 +1531,24 @@ class RecorderApp:
         if keyboard is None:
             return
         try:
-            keyboard.unhook_all_hotkeys()
+            # Remove specific hotkey instead of unhook_all_hotkeys which is buggy
+            if hasattr(self, '_hotkey_hook') and self._hotkey_hook is not None:
+                keyboard.remove_hotkey(self._hotkey_hook)
+                self._hotkey_hook = None
             self.hotkey_registered = False
         except Exception:
             pass
 
     def _on_hotkey(self):
         """Handle hotkey press."""
-        # Use after() to run in main thread
-        self.root.after(0, self.toggle_recording)
+        # Use after_idle to ensure event fires even when window is minimized/unfocused
+        # after(0) can fail if the Tk event loop isn't processing events
+        try:
+            self.root.after_idle(self.toggle_recording)
+            # Force the event loop to process by updating
+            self.root.update_idletasks()
+        except Exception as e:
+            print(f"Hotkey callback error: {e}")
 
     def configure_hotkey(self):
         """Open hotkey configuration dialog."""
